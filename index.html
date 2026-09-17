@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hangout — Watch. Talk. Together.</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+:root{
+    --bg:#07080d;
+    --bg2:#0c0e15;
+    --card:rgba(20,22,32,.72);
+    --card2:rgba(255,255,255,.045);
+    --border:rgba(255,255,255,.09);
+    --text:#f5f7ff;
+    --muted:#9298aa;
+    --accent:#8b5cf6;
+    --accent2:#6d5dfc;
+    --danger:#ef4444;
+    --green:#22c55e;
+}
+
+body{
+    font-family:Inter,Arial,sans-serif;
+    background:
+        radial-gradient(circle at 15% 10%,rgba(139,92,246,.16),transparent 28%),
+        radial-gradient(circle at 85% 80%,rgba(109,93,252,.11),transparent 30%),
+        var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    overflow-x:hidden;
+}
+
+button,input{
+    font:inherit;
+}
+
+button{
+    cursor:pointer;
+}
+
+/* =========================
+   LANDING
+========================= */
+
+#landing{
+    min-height:100vh;
+    position:relative;
+    overflow:hidden;
+}
+
+.bg-orb{
+    position:absolute;
+    width:420px;
+    height:420px;
+    border-radius:50%;
+    filter:blur(100px);
+    opacity:.15;
+    pointer-events:none;
+}
+
+.orb1{
+    background:#8b5cf6;
+    top:-180px;
+    left:-120px;
+}
+
+.orb2{
+    background:#4f46e5;
+    right:-180px;
+    bottom:-200px;
+}
+
+.navbar{
+    width:min(1180px,92%);
+    margin:auto;
+    padding:25px 0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    position:relative;
+    z-index:5;
+}
+
+.logo{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:21px;
+    font-weight:800;
+    letter-spacing:-.5px;
+}
+
+.logo-mark{
+    width:34px;
+    height:34px;
+    border-radius:11px;
+    display:grid;
+    place-items:center;
+    background:linear-gradient(135deg,#8b5cf6,#5b4cf6);
+    box-shadow:0 8px 30px rgba(139,92,246,.35);
+}
+
+.nav-btn{
+    padding:10px 17px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--card2);
+    color:white;
+}
+
+.hero{
+    width:min(1000px,92%);
+    margin:auto;
+    min-height:calc(100vh - 85px);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    position:relative;
+    z-index:2;
+    padding-bottom:80px;
+}
+
+.badge{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 13px;
+    border:1px solid rgba(139,92,246,.25);
+    background:rgba(139,92,246,.08);
+    border-radius:999px;
+    color:#c7b8ff;
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:25px;
+}
+
+.badge-dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:#9b7bff;
+    box-shadow:0 0 12px #9b7bff;
+}
+
+.hero h1{
+    font-size:clamp(48px,8vw,88px);
+    line-height:.98;
+    letter-spacing:-4px;
+    font-weight:800;
+    max-width:850px;
+}
+
+.gradient-text{
+    background:linear-gradient(100deg,#fff 10%,#b8a6ff 55%,#8b5cf6);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+}
+
+.hero p{
+    max-width:620px;
+    color:var(--muted);
+    font-size:16px;
+    line-height:1.7;
+    margin:25px 0 35px;
+}
+
+.hero-actions{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    justify-content:center;
+}
+
+.primary-btn{
+    border:0;
+    color:white;
+    padding:14px 22px;
+    border-radius:13px;
+    font-weight:700;
+    background:linear-gradient(135deg,#8b5cf6,#6555ed);
+    box-shadow:0 12px 35px rgba(110,85,238,.25);
+    transition:.2s;
+}
+
+.primary-btn:hover{
+    transform:translateY(-2px);
+    box-shadow:0 16px 40px rgba(110,85,238,.35);
+}
+
+.secondary-btn{
+    border:1px solid var(--border);
+    color:white;
+    padding:14px 22px;
+    border-radius:13px;
+    font-weight:600;
+    background:rgba(255,255,255,.045);
+    transition:.2s;
+}
+
+.secondary-btn:hover{
+    background:rgba(255,255,255,.08);
+}
+
+.features{
+    width:min(950px,92%);
+    margin:0 auto 80px;
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:14px;
+}
+
+.feature-card{
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.025);
+    border-radius:18px;
+    padding:22px;
+    text-align:left;
+}
+
+.feature-icon{
+    font-size:23px;
+    margin-bottom:13px;
+}
+
+.feature-card h3{
+    font-size:14px;
+    margin-bottom:7px;
+}
+
+.feature-card p{
+    font-size:12px;
+    line-height:1.6;
+    color:var(--muted);
+}
+
+/* =========================
+   MODAL
+========================= */
+
+.modal-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.68);
+    backdrop-filter:blur(12px);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+    padding:20px;
+}
+
+.modal-backdrop.active{
+    display:flex;
+}
+
+.modal{
+    width:min(430px,100%);
+    background:#11131c;
+    border:1px solid var(--border);
+    border-radius:22px;
+    padding:26px;
+    box-shadow:0 30px 100px rgba(0,0,0,.5);
+    animation:modalIn .2s ease;
+}
+
+@keyframes modalIn{
+    from{opacity:0;transform:translateY(10px) scale(.98)}
+    to{opacity:1;transform:none}
+}
+
+.modal-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:22px;
+}
+
+.modal-header h2{
+    font-size:19px;
+}
+
+.close{
+    width:32px;
+    height:32px;
+    border:0;
+    border-radius:9px;
+    color:#aaa;
+    background:rgba(255,255,255,.05);
+}
+
+.input-group{
+    margin-bottom:15px;
+}
+
+.input-group label{
+    display:block;
+    font-size:12px;
+    color:#aeb2c0;
+    margin-bottom:8px;
+}
+
+.input{
+    width:100%;
+    background:#0a0c12;
+    border:1px solid var(--border);
+    outline:none;
+    color:white;
+    border-radius:11px;
+    padding:12px 13px;
+}
+
+.input:focus{
+    border-color:rgba(139,92,246,.6);
+}
+
+.modal .primary-btn{
+    width:100%;
+    margin-top:8px;
+}
+
+/* =========================
+   ROOM
+========================= */
+
+#room{
+    display:none;
+    height:100vh;
+    background:#07080d;
+}
+
+.room-app{
+    height:100%;
+    display:flex;
+    flex-direction:column;
+}
+
+.room-top{
+    height:64px;
+    flex-shrink:0;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 18px;
+    background:rgba(10,11,17,.9);
+}
+
+.room-info{
+    display:flex;
+    align-items:center;
+    gap:12px;
+}
+
+.room-logo{
+    width:35px;
+    height:35px;
+    border-radius:10px;
+    display:grid;
+    place-items:center;
+    background:linear-gradient(135deg,#8b5cf6,#5848ec);
+}
+
+.room-name{
+    font-size:14px;
+    font-weight:700;
+}
+
+.room-status{
+    font-size:10px;
+    color:#7f8495;
+    margin-top:3px;
+}
+
+.room-actions{
+    display:flex;
+    gap:7px;
+}
+
+.icon-btn{
+    width:36px;
+    height:36px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.035);
+    color:#c8cbd5;
+}
+
+.icon-btn:hover{
+    background:rgba(255,255,255,.08);
+}
+
+.room-body{
+    min-height:0;
+    flex:1;
+    display:flex;
+}
+
+/* 75 / 25 */
+
+.main-panel{
+    width:75%;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    background:#080910;
+}
+
+.chat-panel{
+    width:25%;
+    min-width:260px;
+    border-left:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    background:#0c0e15;
+}
+
+/* =========================
+   MEDIA
+========================= */
+
+.media-area{
+    flex:1;
+    min-height:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:18px;
+}
+
+.media-card{
+    width:100%;
+    height:100%;
+    border:1px solid var(--border);
+    border-radius:17px;
+    background:
+        radial-gradient(circle at center,rgba(139,92,246,.055),transparent 40%),
+        #05060a;
+    position:relative;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.media-placeholder{
+    text-align:center;
+    color:#686d7c;
+}
+
+.play-circle{
+    width:70px;
+    height:70px;
+    border-radius:50%;
+    margin:0 auto 17px;
+    display:grid;
+    place-items:center;
+    background:rgba(139,92,246,.12);
+    border:1px solid rgba(139,92,246,.22);
+    font-size:25px;
+}
+
+.media-placeholder h3{
+    color:#c9cbd3;
+    font-size:14px;
+    margin-bottom:7px;
+}
+
+.media-placeholder p{
+    font-size:11px;
+    color:#646978;
+}
+
+.media-controls{
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    padding:15px;
+    display:flex;
+    align-items:center;
+    gap:9px;
+    background:linear-gradient(transparent,rgba(0,0,0,.8));
+}
+
+.control-btn{
+    width:38px;
+    height:38px;
+    border-radius:11px;
+    border:1px solid rgba(255,255,255,.1);
+    background:rgba(0,0,0,.45);
+    color:white;
+}
+
+.control-btn:hover{
+    background:rgba(139,92,246,.25);
+}
+
+.media-label{
+    margin-left:auto;
+    font-size:10px;
+    color:#969baa;
+}
+
+/* =========================
+   BOTTOM CONTROLS
+========================= */
+
+.bottom-controls{
+    height:70px;
+    flex-shrink:0;
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:8px;
+    background:#090a10;
+}
+
+.bottom-control{
+    width:42px;
+    height:42px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.045);
+    color:white;
+    font-size:16px;
+}
+
+.bottom-control:hover{
+    background:rgba(255,255,255,.09);
+}
+
+.bottom-control.active{
+    background:rgba(139,92,246,.2);
+    border-color:rgba(139,92,246,.4);
+}
+
+.leave{
+    margin-left:10px;
+    background:rgba(239,68,68,.12);
+    border-color:rgba(239,68,68,.2);
+}
+
+/* =========================
+   CHAT
+========================= */
+
+.chat-header{
+    height:57px;
+    flex-shrink:0;
+    padding:0 15px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border-bottom:1px solid var(--border);
+}
+
+.chat-title{
+    font-size:13px;
+    font-weight:700;
+}
+
+.online{
+    font-size:10px;
+    color:#6f7482;
+}
+
+.online span{
+    color:#22c55e;
+}
+
+.messages{
+    flex:1;
+    overflow-y:auto;
+    padding:16px 13px;
+}
+
+.message{
+    display:flex;
+    gap:9px;
+    margin-bottom:17px;
+}
+
+.avatar{
+    width:30px;
+    height:30px;
+    flex-shrink:0;
+    border-radius:9px;
+    display:grid;
+    place-items:center;
+    font-size:12px;
+    font-weight:700;
+    background:linear-gradient(135deg,#6d5dfc,#9b78ff);
+}
+
+.message-content{
+    min-width:0;
+}
+
+.message-top{
+    display:flex;
+    gap:7px;
+    align-items:center;
+}
+
+.message-name{
+    font-size:11px;
+    font-weight:700;
+}
+
+.message-time{
+    font-size:9px;
+    color:#5e6371;
+}
+
+.message-text{
+    margin-top:4px;
+    font-size:11px;
+    line-height:1.5;
+    color:#b5b8c2;
+    word-break:break-word;
+}
+
+.gif-message{
+    margin-top:5px;
+    width:130px;
+    height:80px;
+    border-radius:9px;
+    background:linear-gradient(135deg,#252039,#171522);
+    display:grid;
+    place-items:center;
+    color:#b9a8ff;
+    font-size:12px;
+    border:1px solid rgba(139,92,246,.15);
+}
+
+.chat-input-area{
+    padding:11px;
+    border-top:1px solid var(--border);
+}
+
+.chat-input{
+    display:flex;
+    gap:7px;
+    background:#080910;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:6px;
+}
+
+.chat-input input{
+    flex:1;
+    min-width:0;
+    border:0;
+    outline:0;
+    color:white;
+    background:transparent;
+    padding:6px;
+    font-size:11px;
+}
+
+.chat-action{
+    border:0;
+    background:transparent;
+    color:#858a99;
+    width:30px;
+    border-radius:8px;
+}
+
+.chat-action:hover{
+    color:#b49fff;
+    background:rgba(139,92,246,.1);
+}
+
+/* =========================
+   PEOPLE PANEL
+========================= */
+
+.people-panel{
+    position:absolute;
+    right:18px;
+    top:74px;
+    width:260px;
+    background:#11131c;
+    border:1px solid var(--border);
+    border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+    padding:15px;
+    display:none;
+    z-index:20;
+}
+
+.people-panel.show{
+    display:block;
+}
+
+.people-title{
+    font-size:12px;
+    font-weight:700;
+    margin-bottom:12px;
+}
+
+.person{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    padding:9px 5px;
+}
+
+.person-avatar{
+    width:31px;
+    height:31px;
+    border-radius:9px;
+    background:#292c3a;
+    display:grid;
+    place-items:center;
+    font-size:11px;
+}
+
+.person-info{
+    flex:1;
+}
+
+.person-name{
+    font-size:11px;
+}
+
+.person-state{
+    color:#5f6574;
+    font-size:9px;
+    margin-top:2px;
+}
+
+.mic-state{
+    font-size:12px;
+}
+
+/* =========================
+   TOAST
+========================= */
+
+.toast{
+    position:fixed;
+    bottom:25px;
+    left:50%;
+    transform:translate(-50%,20px);
+    opacity:0;
+    pointer-events:none;
+    background:#171924;
+    border:1px solid var(--border);
+    color:white;
+    padding:11px 16px;
+    border-radius:11px;
+    font-size:11px;
+    z-index:300;
+    transition:.25s;
+}
+
+.toast.show{
+    opacity:1;
+    transform:translate(-50%,0);
+}
+
+/* =========================
+   MOBILE
+========================= */
+
+@media(max-width:800px){
+
+    .hero h1{
+        letter-spacing:-2.5px;
+    }
+
+    .features{
+        grid-template-columns:1fr;
+    }
+
+    .room-top{
+        padding:0 11px;
+    }
+
+    .room-actions .icon-btn:nth-child(1){
+        display:none;
+    }
+
+    .room-body{
+        flex-direction:column;
+    }
+
+    .main-panel{
+        width:100%;
+        height:75%;
+    }
+
+    .chat-panel{
+        width:100%;
+        min-width:0;
+        height:25%;
+        border-left:0;
+        border-top:1px solid var(--border);
+    }
+
+    .chat-header{
+        height:43px;
+    }
+
+    .messages{
+        padding:8px 11px;
+    }
+
+    .message{
+        margin-bottom:10px;
+    }
+
+    .chat-input-area{
+        padding:7px;
+    }
+
+    .bottom-controls{
+        height:58px;
+    }
+
+    .bottom-control{
+        width:36px;
+        height:36px;
+        border-radius:10px;
+    }
+
+    .media-area{
+        padding:9px;
+    }
+
+    .media-placeholder h3{
+        font-size:12px;
+    }
+
+    .media-placeholder p{
+        font-size:9px;
+    }
+
+    .people-panel{
+        right:10px;
+        top:60px;
+    }
+}
+
+@media(max-width:450px){
+
+    .hero{
+        padding-bottom:30px;
+    }
+
+    .hero p{
+        font-size:13px;
+    }
+
+    .hero-actions{
+        width:100%;
+    }
+
+    .hero-actions button{
+        width:100%;
+    }
+
+    .room-name{
+        max-width:120px;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+    }
+
+    .bottom-controls{
+        gap:4px;
+    }
+
+    .bottom-control{
+        width:33px;
+        height:33px;
+        font-size:13px;
+    }
+
+    .leave{
+        margin-left:3px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<!-- =========================
+     LANDING PAGE
+========================= -->
+
+<section id="landing">
+
+    <div class="bg-orb orb1"></div>
+    <div class="bg-orb orb2"></div>
+
+    <nav class="navbar">
+        <div class="logo">
+            <div class="logo-mark">V</div>
+            HANGOUT
+        </div>
+
+        <button class="nav-btn" onclick="openJoin()">
+            Join Room
+        </button>
+    </nav>
+
+    <div class="hero">
+
+        <div class="badge">
+            <span class="badge-dot"></span>
+            YOUR PRIVATE SPACE TO HANG OUT
+        </div>
+
+        <h1>
+            Watch.
+            <span class="gradient-text">Talk.</span>
+            Together.
+        </h1>
+
+        <p>
+            Create a room, invite your friends and enjoy movies,
+            screen sharing, voice chat and conversations — all in one place.
+        </p>
+
+        <div class="hero-actions">
+            <button class="primary-btn" onclick="openCreate()">
+                + Create a Room
+            </button>
+
+            <button class="secondary-btn" onclick="openJoin()">
+                Join with Code
+            </button>
+        </div>
+
+    </div>
+
+    <div class="features">
+
+        <div class="feature-card">
+            <div class="feature-icon">🎬</div>
+            <h3>Watch Together</h3>
+            <p>
+                Enjoy videos with friends while staying synced in the same room.
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">🖥️</div>
+            <h3>Share Your Screen</h3>
+            <p>
+                Share your screen or window and let everyone watch with you.
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">🎤</div>
+            <h3>Talk & Chat</h3>
+            <p>
+                Voice, camera and real-time chat with emoji and GIF support.
+            </p>
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     CREATE ROOM MODAL
+========================= -->
+
+<div class="modal-backdrop" id="createModal">
+
+    <div class="modal">
+
+        <div class="modal-header">
+            <h2>Create a Room</h2>
+            <button class="close" onclick="closeModals()">×</button>
+        </div>
+
+        <div class="input-group">
+            <label>Room name</label>
+            <input
+                id="roomNameInput"
+                class="input"
+                placeholder="Movie Night..."
+                maxlength="40"
+            >
+        </div>
+
+        <div class="input-group">
+            <label>Your name</label>
+            <input
+                id="creatorNameInput"
+                class="input"
+                placeholder="Enter your name"
+                maxlength="25"
+            >
+        </div>
+
+        <button class="primary-btn" onclick="createRoom()">
+            Create Room
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- =========================
+     JOIN ROOM MODAL
+========================= -->
+
+<div class="modal-backdrop" id="joinModal">
+
+    <div class="modal">
+
+        <div class="modal-header">
+            <h2>Join a Room</h2>
+            <button class="close" onclick="closeModals()">×</button>
+        </div>
+
+        <div class="input-group">
+            <label>Room code</label>
+            <input
+                id="roomCodeInput"
+                class="input"
+                placeholder="ABCD12"
+                maxlength="10"
+            >
+        </div>
+
+        <div class="input-group">
+            <label>Your name</label>
+            <input
+                id="joinNameInput"
+                class="input"
+                placeholder="Enter your name"
+                maxlength="25"
+            >
+        </div>
+
+        <button class="primary-btn" onclick="joinRoom()">
+            Join Room
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- =========================
+     ROOM
+========================= -->
+
+<section id="room">
+
+    <div class="room-app">
+
+        <header class="room-top">
+
+            <div class="room-info">
+
+                <div class="room-logo">V</div>
+
+                <div>
+                    <div class="room-name" id="displayRoomName">
+                        Movie Night
+                    </div>
+
+                    <div class="room-status">
+                        Room • <span id="roomCodeDisplay">AB12CD</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="room-actions">
+
+                <button
+                    class="icon-btn"
+                    title="Copy invite"
+                    onclick="copyInvite()"
+                >
+                    🔗
+                </button>
+
+                <button
+                    class="icon-btn"
+                    title="People"
+                    onclick="togglePeople()"
+                >
+                    👥
+                </button>
+
+                <button
+                    class="icon-btn"
+                    title="Settings"
+                    onclick="showToast('Room settings coming soon')"
+                >
+                    ⚙
+                </button>
+
+                <button
+                    class="icon-btn"
+                    title="Leave"
+                    onclick="leaveRoom()"
+                >
+                    ×
+                </button>
+
+            </div>
+
+        </header>
+
+
+        <div class="room-body">
+
+            <!-- MAIN 75% AREA -->
+
+            <main class="main-panel">
+
+                <div class="media-area">
+
+                    <div class="media-card">
+
+                        <div class="media-placeholder">
+
+                            <div class="play-circle">▶</div>
+
+                            <h3>
+                                Your movie or screen share appears here
+                            </h3>
+
+                            <p>
+                                Start watching or share your screen with everyone
+                            </p>
+
+                        </div>
+
+                        <div class="media-controls">
+
+                            <button
+                                class="control-btn"
+                                onclick="showToast('Play / Pause')"
+                            >
+                                ▶
+                            </button>
+
+                            <button
+                                class="control-btn"
+                                onclick="showToast('Volume controls')"
+                            >
+                                🔊
+                            </button>
+
+                            <button
+                                class="control-btn"
+                                onclick="showToast('Watch Together')"
+                            >
+                                🎬
+                            </button>
+
+                            <button
+                                class="control-btn"
+                                onclick="startScreenShare()"
+                            >
+                                🖥️
+                            </button>
+
+                            <span class="media-label">
+                                WATCH TOGETHER
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- BOTTOM CONTROLS -->
+
+                <div class="bottom-controls">
+
+                    <button
+                        id="micBtn"
+                        class="bottom-control active"
+                        title="Microphone"
+                        onclick="toggleControl('micBtn','🎤','🔇')"
+                    >
+                        🎤
+                    </button>
+
+                    <button
+                        id="cameraBtn"
+                        class="bottom-control"
+                        title="Camera"
+                        onclick="toggleControl('cameraBtn','📹','🚫')"
+                    >
+                        📹
+                    </button>
+
+                    <button
+                        class="bottom-control"
+                        title="Screen Share"
+                        onclick="startScreenShare()"
+                    >
+                        🖥️
+                    </button>
+
+                    <button
+                        class="bottom-control"
+                        title="Watch Together"
+                        onclick="showToast('Watch Together opened')"
+                    >
+                        🎬
+                    </button>
+
+                    <button
+                        class="bottom-control"
+                        title="Participants"
+                        onclick="togglePeople()"
+                    >
+                        👥
+                    </button>
+
+                    <button
+                        class="bottom-control"
+                        title="Fullscreen"
+                        onclick="toggleFullscreen()"
+                    >
+                        ⛶
+                    </button>
+
+                    <button
+                        class="bottom-control leave"
+                        title="Leave Room"
+                        onclick="leaveRoom()"
+                    >
+                        ☎
+                    </button>
+
+                </div>
+
+            </main>
+
+
+            <!-- CHAT 25% AREA -->
+
+            <aside class="chat-panel">
+
+                <div class="chat-header">
+
+                    <div>
+                        <div class="chat-title">
+                            Room Chat
+                        </div>
+
+                        <div class="online">
+                            <span>●</span>
+                            <span id="memberCount">1</span> online
+                        </div>
+                    </div>
+
+                    <button
+                        class="icon-btn"
+                        onclick="togglePeople()"
+                    >
+                        👥
+                    </button>
+
+                </div>
+
+
+                <div class="messages" id="messages">
+
+                    <div class="message">
+
+                        <div class="avatar">V</div>
+
+                        <div class="message-content">
+
+                            <div class="message-top">
+
+                                <span class="message-name">
+                                    Hangout
+                                </span>
+
+                                <span class="message-time">
+                                    now
+                                </span>
+
+                            </div>
+
+                            <div class="message-text">
+                                Welcome to the room 👋
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="message">
+
+                        <div class="avatar">V</div>
+
+                        <div class="message-content">
+
+                            <div class="message-top">
+
+                                <span class="message-name">
+                                    Hangout
+                                </span>
+
+                                <span class="message-time">
+                                    now
+                                </span>
+
+                            </div>
+
+                            <div class="message-text">
+                                Send messages, GIFs and reactions here.
+                            </div>
+
+                            <div class="gif-message">
+                                GIF 🎞️
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="chat-input-area">
+
+                    <div class="chat-input">
+
+                        <input
+                            id="chatInput"
+                            placeholder="Message the room..."
+                            onkeydown="handleChat(event)"
+                        >
+
+                        <button
+                            class="chat-action"
+                            title="GIF"
+                            onclick="sendGif()"
+                        >
+                            GIF
+                        </button>
+
+                        <button
+                            class="chat-action"
+                            title="Emoji"
+                            onclick="addEmoji()"
+                        >
+                            😊
+                        </button>
+
+                        <button
+                            class="chat-action"
+                            title="Send"
+                            onclick="sendMessage()"
+                        >
+                            ➤
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </aside>
+
+        </div>
+
+
+        <!-- PEOPLE PANEL -->
+
+        <div class="people-panel" id="peoplePanel">
+
+            <div class="people-title">
+                People in this room
+            </div>
+
+            <div class="person">
+
+                <div class="person-avatar">Y</div>
+
+                <div class="person-info">
+
+                    <div class="person-name" id="currentUser">
+                        You
+                    </div>
+
+                    <div class="person-state">
+                        Host
+                    </div>
+
+                </div>
+
+                <div class="mic-state">
+                    🎤
+                </div>
+
+            </div>
+
+            <div class="person">
+
+                <div class="person-avatar">A</div>
+
+                <div class="person-info">
+
+                    <div class="person-name">
+                        Alex
+                    </div>
+
+                    <div class="person-state">
+                        Listening
+                    </div>
+
+                </div>
+
+                <div class="mic-state">
+                    🔇
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<div class="toast" id="toast"></div>
+
+
+<script>
+
+/* =========================
+   BASIC STATE
+========================= */
+
+let currentRoomCode = "";
+let currentUserName = "You";
+
+
+/* =========================
+   MODALS
+========================= */
+
+function openCreate(){
+    document.getElementById("createModal").classList.add("active");
+}
+
+function openJoin(){
+    document.getElementById("joinModal").classList.add("active");
+}
+
+function closeModals(){
+    document.getElementById("createModal").classList.remove("active");
+    document.getElementById("joinModal").classList.remove("active");
+}
+
+
+/* =========================
+   ROOM
+========================= */
+
+function generateRoomCode(){
+
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+    let code = "";
+
+    for(let i=0;i<6;i++){
+        code += chars[Math.floor(Math.random()*chars.length)];
+    }
+
+    return code;
+}
+
+function createRoom(){
+
+    const roomName =
+        document.getElementById("roomNameInput").value.trim()
+        || "Movie Night";
+
+    const name =
+        document.getElementById("creatorNameInput").value.trim()
+        || "You";
+
+    currentUserName = name;
+    currentRoomCode = generateRoomCode();
+
+    enterRoom(roomName,currentRoomCode);
+}
+
+function joinRoom(){
+
+    const code =
+        document.getElementById("roomCodeInput").value.trim()
+        || "AB12CD";
+
+    const name =
+        document.getElementById("joinNameInput").value.trim()
+        || "You";
+
+    currentUserName = name.toUpperCase();
+
+    enterRoom("Friend's Room",code.toUpperCase());
+}
+
+function enterRoom(roomName,code){
+
+    closeModals();
+
+    document.getElementById("landing").style.display = "none";
+    document.getElementById("room").style.display = "block";
+
+    document.getElementById("displayRoomName").textContent = roomName;
+    document.getElementById("roomCodeDisplay").textContent = code;
+    document.getElementById("currentUser").textContent = currentUserName;
+
+    document.getElementById("memberCount").textContent = "1";
+
+    showToast("Room created successfully ✨");
+}
+
+function leaveRoom(){
+
+    document.getElementById("room").style.display = "none";
+    document.getElementById("landing").style.display = "block";
+
+    showToast("You left the room");
+}
+
+
+/* =========================
+   CHAT
+========================= */
+
+function handleChat(event){
+
+    if(event.key === "Enter"){
+        sendMessage();
+    }
+}
+
+function sendMessage(){
+
+    const input = document.getElementById("chatInput");
+    const text = input.value.trim();
+
+    if(!text) return;
+
+    const messages = document.getElementById("messages");
+
+    const message = document.createElement("div");
+
+    message.className = "message";
+
+    message.innerHTML = `
+        <div class="avatar">
+            ${escapeHTML(currentUserName.charAt(0).toUpperCase())}
+        </div>
+
+        <div class="message-content">
+
+            <div class="message-top">
+
+                <span class="message-name">
+                    ${escapeHTML(currentUserName)}
+                </span>
+
+                <span class="message-time">
+                    now
+                </span>
+
+            </div>
+
+            <div class="message-text">
+                ${escapeHTML(text)}
+            </div>
+
+        </div>
+    `;
+
+    messages.appendChild(message);
+
+    input.value = "";
+
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function sendGif(){
+
+    const messages = document.getElementById("messages");
+
+    const message = document.createElement("div");
+
+    message.className = "message";
+
+    message.innerHTML = `
+        <div class="avatar">
+            ${escapeHTML(currentUserName.charAt(0).toUpperCase())}
+        </div>
+
+        <div class="message-content">
+
+            <div class="message-top">
+
+                <span class="message-name">
+                    ${escapeHTML(currentUserName)}
+                </span>
+
+                <span class="message-time">
+                    now
+                </span>
+
+            </div>
+
+            <div class="gif-message">
+                😂 GIF
+            </div>
+
+        </div>
+    `;
+
+    messages.appendChild(message);
+
+    messages.scrollTop = messages.scrollHeight;
+
+    showToast("GIF sent ✨");
+}
+
+function addEmoji(){
+
+    const input = document.getElementById("chatInput");
+
+    input.value += " 😊";
+
+    input.focus();
+}
+
+function escapeHTML(text){
+
+    const div = document.createElement("div");
+
+    div.textContent = text;
+
+    return div.innerHTML;
+}
+
+
+/* =========================
+   PEOPLE
+========================= */
+
+function togglePeople(){
+
+    document
+        .getElementById("peoplePanel")
+        .classList.toggle("show");
+}
+
+
+/* =========================
+   CONTROLS
+========================= */
+
+function toggleControl(id,onIcon,offIcon){
+
+    const btn = document.getElementById(id);
+
+    btn.classList.toggle("active");
+
+    if(btn.classList.contains("active")){
+        btn.textContent = onIcon;
+        showToast("Enabled");
+    }else{
+        btn.textContent = offIcon;
+        showToast("Disabled");
+    }
+}
+
+async function startScreenShare(){
+
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+
+        showToast("Screen sharing is not supported here");
+
+        return;
+    }
+
+    try{
+
+        const stream =
+            await navigator.mediaDevices.getDisplayMedia({
+                video:true,
+                audio:true
+            });
+
+        showToast("Screen sharing started 🖥️");
+
+        const video = document.createElement("video");
+
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.muted = true;
+
+        video.style.position = "absolute";
+        video.style.inset = "0";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.objectFit = "contain";
+        video.style.background = "#000";
+
+        const mediaCard =
+            document.querySelector(".media-card");
+
+        const placeholder =
+            document.querySelector(".media-placeholder");
+
+        placeholder.style.display = "none";
+
+        mediaCard.appendChild(video);
+
+        stream.getVideoTracks()[0].addEventListener(
+            "ended",
+            () => {
+
+                video.remove();
+                placeholder.style.display = "block";
+
+                showToast("Screen sharing stopped");
+
+            }
+        );
+
+    }catch(error){
+
+        showToast("Screen sharing cancelled");
+
+    }
+}
+
+
+/* =========================
+   FULLSCREEN
+========================= */
+
+function toggleFullscreen(){
+
+    const room =
+        document.getElementById("room");
+
+    if(!document.fullscreenElement){
+
+        room.requestFullscreen?.();
+
+    }else{
+
+        document.exitFullscreen?.();
+
+    }
+}
+
+
+/* =========================
+   INVITE
+========================= */
+
+function copyInvite(){
+
+    const link =
+        window.location.origin +
+        window.location.pathname +
+        "?room=" +
+        currentRoomCode;
+
+    navigator.clipboard?.writeText(link);
+
+    showToast("Invite link copied 🔗");
+}
+
+
+/* =========================
+   TOAST
+========================= */
+
+let toastTimer;
+
+function showToast(text){
+
+    const toast =
+        document.getElementById("toast");
+
+    toast.textContent = text;
+
+    toast.classList.add("show");
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(()=>{
+
+        toast.classList.remove("show");
+
+    },2200);
+}
+
+
+/* =========================
+   AUTO JOIN FROM URL
+========================= */
+
+const params =
+    new URLSearchParams(window.location.search);
+
+const urlRoom =
+    params.get("room");
+
+if(urlRoom){
+
+    setTimeout(()=>{
+
+        document.getElementById("roomCodeInput").value =
+            urlRoom;
+
+        openJoin();
+
+    },300);
+
+}
+
+</script>
+
+</body>
+</html>
