@@ -554,6 +554,116 @@ button{
 }
 
 /* =========================
+   MEDIA CONTROLS
+========================= */
+
+let screenShareStream = null;
+let controlsTimer = null;
+
+function showMediaControls(){
+    const card = document.querySelector('.media-card');
+    if(!card) return;
+    card.classList.add('controls-visible');
+    clearTimeout(controlsTimer);
+    controlsTimer = setTimeout(() => card.classList.remove('controls-visible'), 2800);
+}
+
+function toggleMediaControls(event){
+    if(event && event.target.closest('.media-controls')){
+        showMediaControls();
+        return;
+    }
+    const card = document.querySelector('.media-card');
+    if(!card) return;
+    if(card.classList.contains('controls-visible')){
+        card.classList.remove('controls-visible');
+        clearTimeout(controlsTimer);
+    }else{
+        showMediaControls();
+    }
+}
+
+function togglePlay(event){
+    event?.stopPropagation();
+    showToast('Watch Together player ready');
+    showMediaControls();
+}
+
+function toggleMediaMute(event){
+    event?.stopPropagation();
+    showToast('Volume control ready');
+    showMediaControls();
+}
+
+function openWatchTogether(event){
+    event?.stopPropagation();
+    showToast('Watch Together opened 🎬');
+    showMediaControls();
+}
+
+async function toggleScreenShare(event){
+    event?.stopPropagation();
+    if(screenShareStream){
+        stopScreenShare();
+        return;
+    }
+    await startScreenShare();
+}
+
+async function startScreenShare(){
+
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+        showToast('Screen sharing is not supported here');
+        return;
+    }
+
+    try{
+        screenShareStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+        const video = document.getElementById('screenShareVideo');
+        const card = document.querySelector('.media-card');
+        video.srcObject = screenShareStream;
+        card.classList.add('sharing');
+        showMediaControls();
+        updateShareButton();
+        showToast('Screen sharing started 🖥️');
+
+        const track = screenShareStream.getVideoTracks()[0];
+        if(track){
+            track.addEventListener('ended', stopScreenShare);
+        }
+    }catch(error){
+        screenShareStream = null;
+        showToast('Screen sharing cancelled');
+    }
+}
+
+function stopScreenShare(){
+    if(screenShareStream){
+        screenShareStream.getTracks().forEach(track => track.stop());
+    }
+    screenShareStream = null;
+    const video = document.getElementById('screenShareVideo');
+    const card = document.querySelector('.media-card');
+    if(video) video.srcObject = null;
+    if(card) card.classList.remove('sharing');
+    updateShareButton();
+    showToast('Screen sharing stopped');
+}
+
+function updateShareButton(){
+    const btn = document.getElementById('mediaShareBtn');
+    if(!btn) return;
+    btn.textContent = screenShareStream ? '⏹️' : '🖥️';
+    btn.title = screenShareStream ? 'Stop Sharing' : 'Screen Share';
+}
+
+function initMediaArea(){
+    const card = document.querySelector('.media-card');
+    if(card) card.addEventListener('click', toggleMediaControls);
+}
+
+
+/* =========================
    CHAT
 ========================= */
 
@@ -895,6 +1005,74 @@ button{
         margin-left:3px;
     }
 }
+
+/* =========================
+   PRIVATE HANGOUT UPDATES
+========================= */
+.media-card{
+    cursor:pointer;
+    position:relative;
+    overflow:hidden;
+}
+.media-card .media-controls{
+    opacity:0;
+    transform:translateY(8px);
+    pointer-events:none;
+    transition:opacity .2s ease,transform .2s ease;
+}
+.media-card.controls-visible .media-controls{
+    opacity:1;
+    transform:translateY(0);
+    pointer-events:auto;
+}
+.media-card .screen-share-video{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    background:#05060a;
+    z-index:2;
+}
+.media-card .screen-share-video + .media-placeholder{
+    display:none;
+}
+.media-card .media-controls{z-index:4;}
+.media-card .media-live-badge{
+    position:absolute;
+    top:14px;
+    left:14px;
+    z-index:5;
+    display:none;
+    padding:6px 9px;
+    border-radius:999px;
+    background:rgba(239,68,68,.88);
+    color:#fff;
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:.06em;
+}
+.media-card.sharing .media-live-badge{display:block;}
+.media-card.sharing .media-placeholder{display:none;}
+.private-note{
+    margin-top:10px;
+    font-size:10px;
+    color:#737887;
+    text-align:center;
+}
+@media(max-width:800px){
+    .room-body{min-height:0;}
+    .main-panel{min-width:0;}
+    .chat-panel{min-width:0;}
+}
+@media(max-width:700px) and (orientation:landscape){
+    .room-body{grid-template-columns:minmax(0,3fr) minmax(180px,1fr);}
+    .media-area{padding:8px;}
+    .media-card{height:100%;min-height:0;}
+    .chat-header{height:45px;}
+    .chat-input-area{padding:8px;}
+}
+
 </style>
 </head>
 
@@ -1112,7 +1290,7 @@ button{
                 <button
                     class="icon-btn"
                     title="Settings"
-                    onclick="showToast('Room settings coming soon')"
+                    onclick="showToast('Private room settings coming soon')"
                 >
                     ⚙
                 </button>
@@ -1140,6 +1318,10 @@ button{
 
                     <div class="media-card">
 
+                        <span class="media-live-badge">● LIVE SCREEN</span>
+
+                        <video id="screenShareVideo" class="screen-share-video" autoplay playsinline></video>
+
                         <div class="media-placeholder">
 
                             <div class="play-circle">▶</div>
@@ -1157,35 +1339,31 @@ button{
                         <div class="media-controls">
 
                             <button
-                                class="control-btn"
-                                onclick="showToast('Play / Pause')"
-                            >
-                                ▶
-                            </button>
+                                id="micBtn"
+                                class="control-btn active"
+                                onclick="toggleControl('micBtn','🎤','🔇');event.stopPropagation()"
+                                title="Microphone"
+                            >🎤</button>
 
                             <button
+                                id="cameraBtn"
                                 class="control-btn"
-                                onclick="showToast('Volume controls')"
-                            >
-                                🔊
-                            </button>
+                                onclick="toggleControl('cameraBtn','📹','🚫');event.stopPropagation()"
+                                title="Camera"
+                            >📹</button>
 
-                            <button
-                                class="control-btn"
-                                onclick="showToast('Watch Together')"
-                            >
-                                🎬
-                            </button>
+                            <button class="control-btn" onclick="togglePlay(event)" title="Play / Pause">▶</button>
 
-                            <button
-                                class="control-btn"
-                                onclick="startScreenShare()"
-                            >
-                                🖥️
-                            </button>
+                            <button class="control-btn" onclick="toggleMediaMute(event)" title="Mute">🔊</button>
+
+                            <button class="control-btn" onclick="openWatchTogether(event)" title="Watch Together">🎬</button>
+
+                            <button id="mediaShareBtn" class="control-btn" onclick="toggleScreenShare(event)" title="Screen Share">🖥️</button>
+
+                            <button class="control-btn" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
 
                             <span class="media-label">
-                                WATCH TOGETHER
+                                TAP SCREEN TO SHOW CONTROLS
                             </span>
 
                         </div>
@@ -1194,70 +1372,6 @@ button{
 
                 </div>
 
-
-                <!-- BOTTOM CONTROLS -->
-
-                <div class="bottom-controls">
-
-                    <button
-                        id="micBtn"
-                        class="bottom-control active"
-                        title="Microphone"
-                        onclick="toggleControl('micBtn','🎤','🔇')"
-                    >
-                        🎤
-                    </button>
-
-                    <button
-                        id="cameraBtn"
-                        class="bottom-control"
-                        title="Camera"
-                        onclick="toggleControl('cameraBtn','📹','🚫')"
-                    >
-                        📹
-                    </button>
-
-                    <button
-                        class="bottom-control"
-                        title="Screen Share"
-                        onclick="startScreenShare()"
-                    >
-                        🖥️
-                    </button>
-
-                    <button
-                        class="bottom-control"
-                        title="Watch Together"
-                        onclick="showToast('Watch Together opened')"
-                    >
-                        🎬
-                    </button>
-
-                    <button
-                        class="bottom-control"
-                        title="Participants"
-                        onclick="togglePeople()"
-                    >
-                        👥
-                    </button>
-
-                    <button
-                        class="bottom-control"
-                        title="Fullscreen"
-                        onclick="toggleFullscreen()"
-                    >
-                        ⛶
-                    </button>
-
-                    <button
-                        class="bottom-control leave"
-                        title="Leave Room"
-                        onclick="leaveRoom()"
-                    >
-                        ☎
-                    </button>
-
-                </div>
 
             </main>
 
@@ -1291,60 +1405,8 @@ button{
 
                 <div class="messages" id="messages">
 
-                    <div class="message">
-
-                        <div class="avatar">V</div>
-
-                        <div class="message-content">
-
-                            <div class="message-top">
-
-                                <span class="message-name">
-                                    Hangout
-                                </span>
-
-                                <span class="message-time">
-                                    now
-                                </span>
-
-                            </div>
-
-                            <div class="message-text">
-                                Welcome to the room 👋
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                    <div class="message">
-
-                        <div class="avatar">V</div>
-
-                        <div class="message-content">
-
-                            <div class="message-top">
-
-                                <span class="message-name">
-                                    Hangout
-                                </span>
-
-                                <span class="message-time">
-                                    now
-                                </span>
-
-                            </div>
-
-                            <div class="message-text">
-                                Send messages, GIFs and reactions here.
-                            </div>
-
-                            <div class="gif-message">
-                                GIF 🎞️
-                            </div>
-
-                        </div>
-
+                    <div class="chat-empty" id="chatEmpty" style="padding:24px 12px;text-align:center;color:#626877;font-size:11px;">
+                        No messages yet. Say hi 👋
                     </div>
 
                 </div>
@@ -1401,49 +1463,7 @@ button{
                 People in this room
             </div>
 
-            <div class="person">
 
-                <div class="person-avatar">Y</div>
-
-                <div class="person-info">
-
-                    <div class="person-name" id="currentUser">
-                        You
-                    </div>
-
-                    <div class="person-state">
-                        Host
-                    </div>
-
-                </div>
-
-                <div class="mic-state">
-                    🎤
-                </div>
-
-            </div>
-
-            <div class="person">
-
-                <div class="person-avatar">A</div>
-
-                <div class="person-info">
-
-                    <div class="person-name">
-                        Alex
-                    </div>
-
-                    <div class="person-state">
-                        Listening
-                    </div>
-
-                </div>
-
-                <div class="mic-state">
-                    🔇
-                </div>
-
-            </div>
 
         </div>
 
@@ -1544,7 +1564,10 @@ function enterRoom(roomName,code){
 
     document.getElementById("memberCount").textContent = "1";
 
-    showToast("Room created successfully ✨");
+    clearChatEmpty();
+    addSystemMessage(currentUserName + " joined the room");
+
+    showToast("Joined Room ✓");
 }
 
 function leaveRoom(){
@@ -1559,6 +1582,21 @@ function leaveRoom(){
 /* =========================
    CHAT
 ========================= */
+
+function clearChatEmpty(){
+    const empty = document.getElementById('chatEmpty');
+    if(empty) empty.remove();
+}
+
+function addSystemMessage(text){
+    clearChatEmpty();
+    const messages = document.getElementById('messages');
+    const item = document.createElement('div');
+    item.style.cssText = 'padding:8px 10px;text-align:center;color:#707688;font-size:10px;';
+    item.textContent = text;
+    messages.appendChild(item);
+    messages.scrollTop = messages.scrollHeight;
+}
 
 function handleChat(event){
 
@@ -1575,6 +1613,7 @@ function sendMessage(){
     if(!text) return;
 
     const messages = document.getElementById("messages");
+    clearChatEmpty();
 
     const message = document.createElement("div");
 
@@ -1616,6 +1655,7 @@ function sendMessage(){
 function sendGif(){
 
     const messages = document.getElementById("messages");
+    clearChatEmpty();
 
     const message = document.createElement("div");
 
@@ -1703,72 +1743,6 @@ function toggleControl(id,onIcon,offIcon){
         showToast("Disabled");
     }
 }
-
-async function startScreenShare(){
-
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-
-        showToast("Screen sharing is not supported here");
-
-        return;
-    }
-
-    try{
-
-        const stream =
-            await navigator.mediaDevices.getDisplayMedia({
-                video:true,
-                audio:true
-            });
-
-        showToast("Screen sharing started 🖥️");
-
-        const video = document.createElement("video");
-
-        video.srcObject = stream;
-        video.autoplay = true;
-        video.muted = true;
-
-        video.style.position = "absolute";
-        video.style.inset = "0";
-        video.style.width = "100%";
-        video.style.height = "100%";
-        video.style.objectFit = "contain";
-        video.style.background = "#000";
-
-        const mediaCard =
-            document.querySelector(".media-card");
-
-        const placeholder =
-            document.querySelector(".media-placeholder");
-
-        placeholder.style.display = "none";
-
-        mediaCard.appendChild(video);
-
-        stream.getVideoTracks()[0].addEventListener(
-            "ended",
-            () => {
-
-                video.remove();
-                placeholder.style.display = "block";
-
-                showToast("Screen sharing stopped");
-
-            }
-        );
-
-    }catch(error){
-
-        showToast("Screen sharing cancelled");
-
-    }
-}
-
-
-/* =========================
-   FULLSCREEN
-========================= */
 
 function toggleFullscreen(){
 
