@@ -246,6 +246,23 @@ button{
 }
 
 /* =========================
+   RECENT ROOMS
+========================= */
+.recent-rooms{width:min(620px,92%);margin:0 auto 45px;display:none;}
+.recent-rooms.show{display:block;}
+.recent-rooms-title{font-size:11px;color:#777d8d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;text-align:left;}
+.recent-room-list{display:grid;gap:8px;}
+.recent-room-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--border);background:rgba(255,255,255,.025);border-radius:13px;text-align:left;}
+.recent-room-info{min-width:0;flex:1;}
+.recent-room-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.recent-room-code{font-size:9px;color:#666c7b;margin-top:3px;}
+.recent-room-actions{display:flex;gap:5px;}
+.recent-room-actions button{border:1px solid var(--border);background:rgba(255,255,255,.04);color:#ddd;padding:7px 9px;border-radius:8px;font-size:10px;}
+.recent-room-actions .recent-join{background:rgba(139,92,246,.16);border-color:rgba(139,92,246,.3);}
+.kick-btn{margin-left:auto;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#ff9b9b;border-radius:7px;padding:5px 7px;font-size:9px;cursor:pointer;}
+@media(max-width:700px){.recent-rooms{margin-bottom:25px;}.recent-room-item{padding:9px;}.recent-room-actions button{padding:6px 7px;font-size:9px;}}
+
+/* =========================
    MODAL
 ========================= */
 
@@ -1269,6 +1286,11 @@ button{
             </button>
         </div>
 
+        <div class="recent-rooms" id="recentRooms">
+            <div class="recent-rooms-title">Recent Rooms</div>
+            <div class="recent-room-list" id="recentRoomList"></div>
+        </div>
+
     </div>
 
     <div class="features">
@@ -1661,6 +1683,11 @@ let currentRoomCode = "";
 let currentUserName = "You";
 let screenShareStream = null;
 let controlsTimer = null;
+let roomOwnerId = null;
+const DEVICE_USER_KEY = "hangout_device_user_id_v1";
+const RECENT_ROOMS_KEY = "hangout_recent_rooms_v1";
+const sessionUserId = localStorage.getItem(DEVICE_USER_KEY) || ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "u_" + Date.now() + "_" + Math.random().toString(36).slice(2));
+localStorage.setItem(DEVICE_USER_KEY, sessionUserId);
 
 /* =========================
    SUPABASE / REALTIME STATE
@@ -1668,7 +1695,6 @@ let controlsTimer = null;
 const SUPABASE_URL = "https://yfqqbdocdbivuieeyldo.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_JBouQaYKn-Fiye1Go6-cJA_rhJVHi4A";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const sessionUserId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "u_" + Date.now() + "_" + Math.random().toString(36).slice(2);
 let roomChannel = null;
 let roomMembers = [];
 let peerConnections = {};
@@ -1791,6 +1817,51 @@ function initMediaArea(){
    REALTIME ROOM / CHAT / WEBRTC
 ========================= */
 
+function getRecentRooms(){
+    try{ const data=JSON.parse(localStorage.getItem(RECENT_ROOMS_KEY)||"[]"); return Array.isArray(data)?data:[]; }catch{return [];}
+}
+function saveRecentRoom(code,name,isHost=false){
+    if(!code) return;
+    const rooms=getRecentRooms().filter(r=>r.room_code!==code);
+    rooms.unshift({room_code:code,room_name:name||"Movie Night",is_host:!!isHost,saved_at:Date.now()});
+    localStorage.setItem(RECENT_ROOMS_KEY,JSON.stringify(rooms.slice(0,6)));
+    renderRecentRooms();
+}
+function renderRecentRooms(){
+    const wrap=document.getElementById("recentRooms"), list=document.getElementById("recentRoomList");
+    if(!wrap||!list) return; const rooms=getRecentRooms(); list.innerHTML="";
+    if(!rooms.length){wrap.classList.remove("show");return;} wrap.classList.add("show");
+    rooms.forEach(room=>{
+        const item=document.createElement("div"); item.className="recent-room-item";
+        item.innerHTML=`<div class="recent-room-info"><div class="recent-room-name">${escapeHTML(room.room_name||"Movie Night")}</div><div class="recent-room-code">${escapeHTML(room.room_code)}${room.is_host?" • Host":""}</div></div>`;
+        const actions=document.createElement("div"); actions.className="recent-room-actions";
+        const join=document.createElement("button"); join.className="recent-join"; join.textContent="Join"; join.onclick=()=>rejoinRecentRoom(room);
+        const edit=document.createElement("button"); edit.textContent="Edit"; edit.onclick=()=>editRecentRoom(room);
+        actions.append(join,edit); item.appendChild(actions); list.appendChild(item);
+    });
+}
+async function rejoinRecentRoom(room){
+    try{ const live=await getRoom(room.room_code); if(!live){showToast("Room no longer exists");return;} currentUserName=prompt("Your name",currentUserName||"You")?.trim()||currentUserName||"You"; await enterRoom(live.room_name,live.room_code); }
+    catch(error){console.error(error);showToast("Could not join recent room");}
+}
+async function editRecentRoom(room){
+    const next=prompt("Edit room name",room.room_name||"Movie Night"); if(next===null)return; const name=next.trim(); if(!name)return;
+    try{ const {error}=await supabaseClient.from("rooms").update({room_name:name}).eq("room_code",room.room_code); if(error)throw error; saveRecentRoom(room.room_code,name,room.is_host); if(currentRoomCode===room.room_code)document.getElementById("displayRoomName").textContent=name; showToast("Room name updated ✓"); }
+    catch(error){console.error(error);showToast("Could not edit room");}
+}
+async function setRoomOwner(code,ownerId){
+    const {data}=await supabaseClient.from("room_messages").select("message").eq("room_code",code).eq("message_type","room_owner").limit(1); if(data&&data.length)return;
+    const {error}=await supabaseClient.from("room_messages").insert({room_code:code,user_id:ownerId,user_name:currentUserName,message:JSON.stringify({owner_id:ownerId}),message_type:"room_owner"}); if(error)console.error("Owner record error",error);
+}
+async function loadRoomOwner(){
+    roomOwnerId=null; const {data,error}=await supabaseClient.from("room_messages").select("message,user_id").eq("room_code",currentRoomCode).eq("message_type","room_owner").order("created_at",{ascending:true}).limit(1); if(error){console.error(error);return;}
+    if(data&&data[0]){try{roomOwnerId=JSON.parse(data[0].message)?.owner_id||data[0].user_id;}catch{roomOwnerId=data[0].user_id;}}
+}
+async function kickMember(userId,userName){
+    if(roomOwnerId!==sessionUserId||!userId||userId===sessionUserId)return; if(!confirm(`Kick ${userName||"this person"} from the room?`))return;
+    const {error}=await supabaseClient.from("room_members").delete().eq("room_code",currentRoomCode).eq("user_id",userId); if(error){console.error(error);showToast("Could not kick member");return;} await loadMembers(); showToast((userName||"Member")+" kicked");
+}
+
 async function getRoom(roomCode){
     const {data,error} = await supabaseClient
         .from("rooms")
@@ -1842,7 +1913,14 @@ function renderMembers(){
     roomMembers.forEach(member=>{
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;";
-        row.innerHTML = `<div class="avatar" style="width:28px;height:28px;">${escapeHTML((member.user_name||"?").charAt(0).toUpperCase())}</div><span>${escapeHTML(member.user_name)}${member.user_id===sessionUserId ? " (You)" : ""}</span>`;
+        row.innerHTML = `<div class="avatar" style="width:28px;height:28px;">${escapeHTML((member.user_name||"?").charAt(0).toUpperCase())}</div><span>${escapeHTML(member.user_name)}${member.user_id===sessionUserId ? " (You)" : ""}${member.user_id===roomOwnerId ? " 👑" : ""}</span>`;
+        if(roomOwnerId===sessionUserId && member.user_id!==sessionUserId){
+            const kick=document.createElement("button");
+            kick.className="kick-btn"; kick.textContent="Kick";
+            kick.title="Remove this person from the room";
+            kick.onclick=()=>kickMember(member.user_id,member.user_name);
+            row.appendChild(kick);
+        }
         panel.appendChild(row);
     });
     const count = document.getElementById("memberCount");
@@ -2385,6 +2463,8 @@ async function createRoom(){
     currentRoomCode = generateRoomCode();
     try{
         await ensureRoom(roomName,currentRoomCode);
+        await setRoomOwner(currentRoomCode,sessionUserId);
+        saveRecentRoom(currentRoomCode,roomName,true);
         await enterRoom(roomName,currentRoomCode);
     }catch(error){
         console.error(error);
@@ -2419,9 +2499,11 @@ async function enterRoom(roomName,code){
         currentUserElement.textContent = currentUserName;
     }
     clearChatEmpty();
+    await loadRoomOwner();
     await addMember();
     await loadExistingMessages();
     await setupRoomRealtime();
+    saveRecentRoom(currentRoomCode,roomName,roomOwnerId===sessionUserId);
     addSystemMessage(currentUserName + " joined the room");
     await broadcastSystemJoin();
     showMediaControls();
@@ -2442,7 +2524,9 @@ async function loadExistingMessages(){
         else if(msg.message_type==="gif") appendChatMessage(msg.user_name,"GIF",true);
         else if(msg.message_type==="image") appendRemoteImage(msg);
         else if(msg.message_type==="custom_emoji") loadCustomEmojiAsset(msg.message);
+        else if(msg.message_type==="custom_sticker") loadCustomStickerAsset(msg.message);
         else if(msg.message_type==="emoji_image") appendRemoteEmoji(msg);
+        else if(msg.message_type==="sticker_image") appendRemoteSticker(msg);
     });
 }
 
@@ -2624,6 +2708,8 @@ function showToast(text){
     },2200);
 }
 
+
+renderRecentRooms();
 
 /* =========================
    AUTO JOIN FROM URL
