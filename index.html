@@ -985,12 +985,153 @@ button{
     .main-panel{min-width:0;}
     .chat-panel{min-width:0;}
 }
-@media(max-width:700px) and (orientation:landscape){
-    .room-body{grid-template-columns:minmax(0,3fr) minmax(180px,1fr);}
-    .media-area{padding:8px;}
-    .media-card{height:100%;min-height:0;}
-    .chat-header{height:45px;}
-    .chat-input-area{padding:8px;}
+@media(max-width:700px){
+    html,body{
+        width:100%;
+        height:100%;
+        height:100dvh;
+        overflow:hidden;
+        overscroll-behavior:none;
+    }
+
+    #room{
+        width:100%;
+        height:100dvh;
+        min-height:100dvh;
+        overflow:hidden;
+    }
+
+    .room-app{
+        width:100%;
+        height:100dvh;
+        min-height:100dvh;
+        overflow:hidden;
+    }
+
+    /* On mobile the room itself is the whole screen.
+       Room name/code and duplicate header actions stay hidden so
+       the movie and chat get the maximum possible space. */
+    .room-top{
+        display:none;
+    }
+
+    .room-body{
+        width:100%;
+        height:100%;
+        min-height:0;
+        flex:1 1 auto;
+        display:flex;
+        flex-direction:row;
+        overflow:hidden;
+    }
+
+    .main-panel{
+        width:75%;
+        height:100%;
+        min-width:0;
+        flex:0 0 75%;
+    }
+
+    .chat-panel{
+        width:25%;
+        min-width:0;
+        height:100%;
+        flex:0 0 25%;
+        border-left:1px solid var(--border);
+    }
+
+    .media-area{
+        width:100%;
+        height:100%;
+        min-height:0;
+        padding:0;
+    }
+
+    .media-card{
+        width:100%;
+        height:100%;
+        min-height:0;
+        border-radius:0;
+        border:0;
+    }
+
+    /* Controls remain hidden until the user taps the movie area.
+       They auto-hide again after the normal 3 second timer. */
+    .media-card .media-controls{
+        bottom:10px;
+        left:8px;
+        right:8px;
+        max-width:none;
+        gap:5px;
+    }
+
+    .media-card .media-label{
+        display:none;
+    }
+
+    .media-card .control-btn{
+        width:34px;
+        height:34px;
+        min-width:34px;
+        font-size:13px;
+    }
+
+    .chat-header{
+        height:42px;
+        min-height:42px;
+        padding:0 7px;
+    }
+
+    .chat-header > button{
+        display:none;
+    }
+
+    .chat-title{
+        font-size:11px;
+    }
+
+    .online{
+        font-size:8px;
+    }
+
+    .messages{
+        min-height:0;
+        padding:7px 6px;
+    }
+
+    .chat-input-area{
+        padding:6px;
+    }
+
+    .chat-input{
+        padding:4px;
+        gap:3px;
+    }
+
+    .chat-input input{
+        min-width:0;
+        padding:8px 7px;
+        font-size:11px;
+    }
+
+    .chat-action{
+        width:28px;
+        min-width:28px;
+        height:28px;
+        font-size:10px;
+    }
+
+    .people-panel{
+        max-width:70%;
+    }
+}
+
+@media(max-width:700px) and (orientation:portrait){
+    /* Keep the same 75/25 room model in portrait too, but let the
+       browser/device decide the available width without page scrolling. */
+    .chat-panel{
+        min-width:0;
+    }
 }
 
 </style>
