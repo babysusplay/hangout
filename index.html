@@ -1393,6 +1393,7 @@ button{
 <div class="toast" id="toast"></div>
 
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 
 /* =========================
@@ -1403,6 +1404,19 @@ let currentRoomCode = "";
 let currentUserName = "You";
 let screenShareStream = null;
 let controlsTimer = null;
+
+/* =========================
+   SUPABASE / REALTIME STATE
+========================= */
+const SUPABASE_URL = "https://yfqqbdocdbivuieeyldo.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_JBouQaYKn-Fiye1Go6-cJA_rhJVHi4A";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const sessionUserId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "u_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+let roomChannel = null;
+let roomMembers = [];
+let peerConnections = {};
+let screenShareOwnerId = null;
+let isScreenShareHost = false;
 
 
 /* =========================
@@ -1466,26 +1480,39 @@ async function startScreenShare(){
             video.play?.().catch(()=>{});
         }
         card?.classList.add("sharing");
+        isScreenShareHost = true;
+        screenShareOwnerId = sessionUserId;
         updateShareButton();
         showMediaControls();
         showToast("Screen sharing started 🖥️");
+        await broadcastSignal({type:"screen-share-start", from:sessionUserId});
+        for(const member of roomMembers){
+            if(member.user_id !== sessionUserId) await createOfferFor(member.user_id);
+        }
         const track = screenShareStream.getVideoTracks()[0];
         if(track) track.addEventListener("ended",stopScreenShare,{once:true});
     }catch(error){
         screenShareStream = null;
+        isScreenShareHost = false;
+        screenShareOwnerId = null;
         updateShareButton();
         showToast("Screen sharing cancelled");
     }
 }
 
-function stopScreenShare(){
+async function stopScreenShare(){
     if(screenShareStream) screenShareStream.getTracks().forEach(track=>track.stop());
     screenShareStream = null;
+    isScreenShareHost = false;
+    screenShareOwnerId = null;
     const video = document.getElementById("screenShareVideo");
     const card = document.querySelector(".media-card");
     if(video) video.srcObject = null;
     if(card) card.classList.remove("sharing");
+    Object.values(peerConnections).forEach(pc=>pc.close());
+    peerConnections = {};
     updateShareButton();
+    await broadcastSignal({type:"screen-share-stop", from:sessionUserId});
     showMediaControls();
     showToast("Screen sharing stopped");
 }
@@ -1493,8 +1520,8 @@ function stopScreenShare(){
 function updateShareButton(){
     const btn = document.getElementById("mediaShareBtn");
     if(!btn) return;
-    btn.textContent = screenShareStream ? "⏹️" : "🖥️";
-    btn.title = screenShareStream ? "Stop Sharing" : "Screen Share";
+    btn.textContent = screenShareStream && isScreenShareHost ? "⏹️" : "🖥️";
+    btn.title = screenShareStream && isScreenShareHost ? "Stop Sharing" : "Screen Share";
 }
 
 function initMediaArea(){
@@ -1502,6 +1529,225 @@ function initMediaArea(){
     if(!card) return;
     card.addEventListener("click",toggleMediaControls);
     card.addEventListener("touchstart",toggleMediaControls,{passive:true});
+}
+
+/* =========================
+   REALTIME ROOM / CHAT / WEBRTC
+========================= */
+
+async function getRoom(roomCode){
+    const {data,error} = await supabaseClient
+        .from("rooms")
+        .select("room_code,room_name")
+        .eq("room_code",roomCode)
+        .maybeSingle();
+    if(error) throw error;
+    return data;
+}
+
+async function ensureRoom(roomName,code){
+    const existing = await getRoom(code);
+    if(existing) return existing;
+    const {data,error} = await supabaseClient
+        .from("rooms")
+        .insert({room_code:code,room_name:roomName})
+        .select("room_code,room_name")
+        .single();
+    if(error && error.code !== "23505") throw error;
+    return data || await getRoom(code);
+}
+
+async function addMember(){
+    await supabaseClient.from("room_members").delete()
+        .eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
+    const {error} = await supabaseClient.from("room_members").insert({
+        room_code:currentRoomCode,
+        user_name:currentUserName,
+        user_id:sessionUserId
+    });
+    if(error) throw error;
+}
+
+async function loadMembers(){
+    const {data,error} = await supabaseClient
+        .from("room_members")
+        .select("user_id,user_name,joined_at")
+        .eq("room_code",currentRoomCode)
+        .order("joined_at",{ascending:true});
+    if(error) throw error;
+    roomMembers = data || [];
+    renderMembers();
+}
+
+function renderMembers(){
+    const panel = document.getElementById("peoplePanel");
+    if(!panel) return;
+    panel.innerHTML = '<div class="people-title">People in this room</div>';
+    roomMembers.forEach(member=>{
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;";
+        row.innerHTML = `<div class="avatar" style="width:28px;height:28px;">${escapeHTML((member.user_name||"?").charAt(0).toUpperCase())}</div><span>${escapeHTML(member.user_name)}${member.user_id===sessionUserId ? " (You)" : ""}</span>`;
+        panel.appendChild(row);
+    });
+    const count = document.getElementById("memberCount");
+    if(count) count.textContent = String(roomMembers.length);
+}
+
+function closeRoomChannel(){
+    if(roomChannel){
+        supabaseClient.removeChannel(roomChannel);
+        roomChannel = null;
+    }
+}
+
+async function setupRoomRealtime(){
+    closeRoomChannel();
+    await loadMembers();
+    roomChannel = supabaseClient.channel("hangout-room-" + currentRoomCode, {config:{broadcast:{self:false}}});
+    roomChannel
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"room_messages",filter:"room_code=eq."+currentRoomCode},payload=>{
+            const msg = payload.new;
+            if(msg.user_id === sessionUserId) return;
+            if(msg.message_type === "text") appendRemoteMessage(msg);
+            else if(msg.message_type === "gif") appendRemoteGif(msg);
+            else if(msg.message_type === "system") addSystemMessage(msg.message);
+            else if(msg.message_type === "signal") handleSignalMessage(msg);
+        })
+        .on("postgres_changes",{event:"*",schema:"public",table:"room_members",filter:"room_code=eq."+currentRoomCode},async()=>{
+            try{
+                await loadMembers();
+                if(isScreenShareHost){
+                    for(const member of roomMembers){
+                        if(member.user_id !== sessionUserId && !peerConnections[member.user_id]) await createOfferFor(member.user_id);
+                    }
+                }
+            }catch(e){ console.error(e); }
+        })
+        .subscribe(status=>{
+            if(status === "SUBSCRIBED") showToast("Room connected ✓");
+        });
+}
+
+async function broadcastSignal(signal){
+    if(!currentRoomCode) return;
+    const {error} = await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,
+        user_id:sessionUserId,
+        user_name:currentUserName,
+        message:JSON.stringify(signal),
+        message_type:"signal"
+    });
+    if(error) console.error("Signal error",error);
+}
+
+function rtcConfig(){
+    return {iceServers:[
+        {urls:"stun:stun.l.google.com:19302"},
+        {urls:"stun:stun1.l.google.com:19302"}
+    ]};
+}
+
+function makePeer(userId){
+    if(peerConnections[userId]) return peerConnections[userId];
+    const pc = new RTCPeerConnection(rtcConfig());
+    peerConnections[userId] = pc;
+    if(screenShareStream && isScreenShareHost){
+        screenShareStream.getTracks().forEach(track=>pc.addTrack(track,screenShareStream));
+    }
+    pc.onicecandidate = e=>{
+        if(e.candidate) broadcastSignal({type:"ice",from:sessionUserId,to:userId,candidate:e.candidate});
+    };
+    pc.ontrack = e=>{
+        if(isScreenShareHost) return;
+        const video=document.getElementById("screenShareVideo");
+        if(video){
+            video.srcObject=e.streams[0];
+            video.play?.().catch(()=>{});
+            document.querySelector(".media-card")?.classList.add("sharing");
+        }
+    };
+    pc.onconnectionstatechange = ()=>{
+        if(["failed","closed","disconnected"].includes(pc.connectionState)){
+            pc.close();
+            delete peerConnections[userId];
+        }
+    };
+    return pc;
+}
+
+async function createOfferFor(userId){
+    if(!screenShareStream || !isScreenShareHost || userId===sessionUserId) return;
+    const pc=makePeer(userId);
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await broadcastSignal({type:"offer",from:sessionUserId,to:userId,description:pc.localDescription});
+}
+
+async function handleSignalMessage(msg){
+    let signal;
+    try{ signal=JSON.parse(msg.message); }catch{return;}
+    if(signal.to && signal.to!==sessionUserId) return;
+    if(signal.type==="screen-share-start"){
+        screenShareOwnerId=signal.from;
+        return;
+    }
+    if(signal.type==="screen-share-stop"){
+        if(!isScreenShareHost){
+            const video=document.getElementById("screenShareVideo");
+            if(video) video.srcObject=null;
+            document.querySelector(".media-card")?.classList.remove("sharing");
+        }
+        Object.values(peerConnections).forEach(pc=>pc.close());
+        peerConnections={};
+        screenShareOwnerId=null;
+        return;
+    }
+    if(signal.type==="offer"){
+        const pc=makePeer(signal.from);
+        await pc.setRemoteDescription(signal.description);
+        const answer=await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await broadcastSignal({type:"answer",from:sessionUserId,to:signal.from,description:pc.localDescription});
+        return;
+    }
+    if(signal.type==="answer"){
+        const pc=peerConnections[signal.from] || makePeer(signal.from);
+        await pc.setRemoteDescription(signal.description);
+        return;
+    }
+    if(signal.type==="ice"){
+        const pc=peerConnections[signal.from];
+        if(pc && signal.candidate){
+            try{ await pc.addIceCandidate(signal.candidate); }catch(e){ console.error(e); }
+        }
+    }
+}
+
+function appendRemoteMessage(msg){
+    appendChatMessage(msg.user_name,msg.message);
+}
+
+function appendRemoteGif(msg){
+    appendChatMessage(msg.user_name,"😂 GIF",true);
+}
+
+function appendChatMessage(name,text,isGif=false){
+    const messages=document.getElementById("messages");
+    clearChatEmpty();
+    const message=document.createElement("div");
+    message.className="message";
+    message.innerHTML=`<div class="avatar">${escapeHTML((name||"?").charAt(0).toUpperCase())}</div><div class="message-content"><div class="message-top"><span class="message-name">${escapeHTML(name||"Unknown")}</span><span class="message-time">now</span></div><div class="${isGif?"gif-message":"message-text"}">${escapeHTML(text)}</div></div>`;
+    messages.appendChild(message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function initMediaArea(){
+    const card = document.querySelector(".media-card");
+    if(!card) return;
+    card.addEventListener("click",(event)=>{
+        if(event.target.closest(".media-controls")) return;
+        showMediaControls();
+    });
 }
 
 
@@ -1544,64 +1790,93 @@ function generateRoomCode(){
     return code;
 }
 
-function createRoom(){
-
-    const roomName =
-        document.getElementById("roomNameInput").value.trim()
-        || "Movie Night";
-
-    const name =
-        document.getElementById("creatorNameInput").value.trim()
-        || "You";
-
+async function createRoom(){
+    const roomName = document.getElementById("roomNameInput").value.trim() || "Movie Night";
+    const name = document.getElementById("creatorNameInput").value.trim() || "You";
     currentUserName = name;
     currentRoomCode = generateRoomCode();
-
-    enterRoom(roomName,currentRoomCode);
+    try{
+        await ensureRoom(roomName,currentRoomCode);
+        await enterRoom(roomName,currentRoomCode);
+    }catch(error){
+        console.error(error);
+        showToast("Could not create room");
+    }
 }
 
-function joinRoom(){
-
-    const code =
-        document.getElementById("roomCodeInput").value.trim()
-        || "AB12CD";
-
-    const name =
-        document.getElementById("joinNameInput").value.trim()
-        || "You";
-
-    currentUserName = name.toUpperCase();
-
-    enterRoom("Friend's Room",code.toUpperCase());
+async function joinRoom(){
+    const code = (document.getElementById("roomCodeInput").value.trim() || "AB12CD").toUpperCase();
+    const name = document.getElementById("joinNameInput").value.trim() || "You";
+    try{
+        const room = await getRoom(code);
+        if(!room){ showToast("Room not found"); return; }
+        currentUserName = name.toUpperCase();
+        currentRoomCode = code;
+        await enterRoom(room.room_name,currentRoomCode);
+    }catch(error){
+        console.error(error);
+        showToast("Could not join room");
+    }
 }
 
-function enterRoom(roomName,code){
-
+async function enterRoom(roomName,code){
     closeModals();
-
-    document.getElementById("landing").style.display = "none";
-    document.getElementById("room").style.display = "block";
-
-    document.getElementById("displayRoomName").textContent = roomName;
-    document.getElementById("roomCodeDisplay").textContent = code;
-    document.getElementById("currentUser").textContent = currentUserName;
-
-    document.getElementById("memberCount").textContent = "1";
-
+    currentRoomCode=code;
+    document.getElementById("landing").style.display="none";
+    document.getElementById("room").style.display="block";
+    document.getElementById("displayRoomName").textContent=roomName;
+    document.getElementById("roomCodeDisplay").textContent=code;
+    document.getElementById("currentUser").textContent=currentUserName;
     clearChatEmpty();
+    await addMember();
+    await loadExistingMessages();
+    await setupRoomRealtime();
     addSystemMessage(currentUserName + " joined the room");
-
+    await broadcastSystemJoin();
+    showMediaControls();
     showToast("Joined Room ✓");
 }
 
-function leaveRoom(){
+async function loadExistingMessages(){
+    const {data,error}=await supabaseClient.from("room_messages")
+        .select("user_id,user_name,message,message_type,created_at")
+        .eq("room_code",currentRoomCode)
+        .neq("message_type","signal")
+        .order("created_at",{ascending:true})
+        .limit(200);
+    if(error) throw error;
+    clearChatMessagesOnly();
+    (data||[]).forEach(msg=>{
+        if(msg.message_type==="text") appendChatMessage(msg.user_name,msg.message);
+        else if(msg.message_type==="gif") appendChatMessage(msg.user_name,"😂 GIF",true);
+    });
+}
 
-    if(screenShareStream) stopScreenShare();
+function clearChatMessagesOnly(){
+    const messages=document.getElementById("messages");
+    if(messages) messages.innerHTML="";
+}
+
+async function broadcastSystemJoin(){
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:currentUserName + " joined the room",message_type:"system"
+    });
+    if(error) console.error(error);
+}
+
+async function leaveRoom(){
+    if(screenShareStream) await stopScreenShare();
     clearTimeout(controlsTimer);
-
-    document.getElementById("room").style.display = "none";
-    document.getElementById("landing").style.display = "block";
-
+    if(currentRoomCode){
+        await supabaseClient.from("room_members").delete().eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
+    }
+    Object.values(peerConnections).forEach(pc=>pc.close());
+    peerConnections={};
+    closeRoomChannel();
+    currentRoomCode="";
+    document.getElementById("room").style.display="none";
+    document.getElementById("landing").style.display="block";
     showToast("You left the room");
 }
 
@@ -1632,94 +1907,31 @@ function handleChat(event){
     }
 }
 
-function sendMessage(){
-
-    const input = document.getElementById("chatInput");
-    const text = input.value.trim();
-
-    if(!text) return;
-
-    const messages = document.getElementById("messages");
-    clearChatEmpty();
-
-    const message = document.createElement("div");
-
-    message.className = "message";
-
-    message.innerHTML = `
-        <div class="avatar">
-            ${escapeHTML(currentUserName.charAt(0).toUpperCase())}
-        </div>
-
-        <div class="message-content">
-
-            <div class="message-top">
-
-                <span class="message-name">
-                    ${escapeHTML(currentUserName)}
-                </span>
-
-                <span class="message-time">
-                    now
-                </span>
-
-            </div>
-
-            <div class="message-text">
-                ${escapeHTML(text)}
-            </div>
-
-        </div>
-    `;
-
-    messages.appendChild(message);
-
-    input.value = "";
-
-    messages.scrollTop = messages.scrollHeight;
+async function sendMessage(){
+    const input=document.getElementById("chatInput");
+    const text=input.value.trim();
+    if(!text || !currentRoomCode) return;
+    input.value="";
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:text,message_type:"text"
+    });
+    if(error){ console.error(error); showToast("Message failed to send"); return; }
+    appendChatMessage(currentUserName,text);
 }
 
-function sendGif(){
 
-    const messages = document.getElementById("messages");
-    clearChatEmpty();
-
-    const message = document.createElement("div");
-
-    message.className = "message";
-
-    message.innerHTML = `
-        <div class="avatar">
-            ${escapeHTML(currentUserName.charAt(0).toUpperCase())}
-        </div>
-
-        <div class="message-content">
-
-            <div class="message-top">
-
-                <span class="message-name">
-                    ${escapeHTML(currentUserName)}
-                </span>
-
-                <span class="message-time">
-                    now
-                </span>
-
-            </div>
-
-            <div class="gif-message">
-                😂 GIF
-            </div>
-
-        </div>
-    `;
-
-    messages.appendChild(message);
-
-    messages.scrollTop = messages.scrollHeight;
-
+async function sendGif(){
+    if(!currentRoomCode) return;
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:"😂 GIF",message_type:"gif"
+    });
+    if(error){ console.error(error); showToast("GIF failed to send"); return; }
+    appendChatMessage(currentUserName,"😂 GIF",true);
     showToast("GIF sent ✨");
 }
+
 
 function addEmoji(){
 
