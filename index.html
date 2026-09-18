@@ -967,6 +967,65 @@ button{
 }
 
 /* =========================
+   MOBILE KEYBOARD / VIEWPORT LOCK
+========================= */
+#remoteShareAudio{
+    position:absolute;
+    width:1px;
+    height:1px;
+    opacity:0;
+    pointer-events:none;
+}
+@media(max-width:700px){
+    html,body{
+        width:100%;
+        height:100%;
+        overflow:hidden !important;
+        overscroll-behavior:none;
+    }
+    #room,.room-app{
+        width:100%;
+        height:100svh;
+        min-height:100svh;
+        max-height:100svh;
+        overflow:hidden !important;
+    }
+    .room-body{
+        overflow:hidden !important;
+        min-height:0 !important;
+    }
+    .chat-panel{
+        min-height:0 !important;
+        overflow:hidden !important;
+        position:relative;
+    }
+    .messages{
+        min-height:0 !important;
+        overflow-y:auto !important;
+        overscroll-behavior:contain;
+        -webkit-overflow-scrolling:touch;
+    }
+    .chat-input-area{
+        z-index:20;
+    }
+    body.hangout-keyboard-open .chat-input-area{
+        position:fixed;
+        left:0;
+        right:0;
+        bottom:0;
+        width:100%;
+        box-sizing:border-box;
+        background:rgba(10,11,18,.96);
+        border-top:1px solid var(--border);
+        padding-bottom:max(6px, env(safe-area-inset-bottom));
+        transform:translateZ(0);
+    }
+    body.hangout-keyboard-open .messages{
+        padding-bottom:78px;
+    }
+}
+
+/* =========================
    PRIVATE HANGOUT UPDATES
 ========================= */
 .media-card{
@@ -1517,6 +1576,7 @@ button{
                         <span class="media-live-badge">● LIVE SCREEN</span>
 
                         <video id="screenShareVideo" class="screen-share-video" autoplay playsinline></video>
+                        <audio id="remoteShareAudio" autoplay playsinline></audio>
 
                         <div class="media-placeholder">
 
@@ -1790,11 +1850,21 @@ function openWatchTogether(event){
 }
 
 function enableRemoteShareAudio(){
+    if(isScreenShareHost) return;
     const video=document.getElementById("screenShareVideo");
-    if(video && !isScreenShareHost){
-        video.muted=false;
-        video.volume=1;
+    const audio=document.getElementById("remoteShareAudio");
+    if(video){
+        // Keep the video element muted and use the dedicated audio element.
+        // This avoids browser autoplay/volume quirks when a remote stream
+        // contains both video and system audio tracks.
+        video.muted=true;
+        video.volume=0;
         video.play?.().catch(()=>{});
+    }
+    if(audio){
+        audio.muted=false;
+        audio.volume=1;
+        audio.play?.().catch(()=>{});
     }
 }
 
@@ -1906,8 +1976,16 @@ async function startScreenShare(){
     }
     try{
         screenShareStream = await navigator.mediaDevices.getDisplayMedia({
-            video:{frameRate:{ideal:30,max:30}},
-            audio:true
+            video:{
+                frameRate:{ideal:30,max:30},
+                width:{ideal:1920},
+                height:{ideal:1080}
+            },
+            audio:{
+                echoCancellation:false,
+                noiseSuppression:false,
+                autoGainControl:false
+            }
         });
         const video = document.getElementById("screenShareVideo");
         const card = document.querySelector(".media-card");
@@ -1955,6 +2033,8 @@ async function stopScreenShare(){
     const video = document.getElementById("screenShareVideo");
     const card = document.querySelector(".media-card");
     if(video){ video.srcObject = null; video.muted=true; video.volume=0; }
+    const audio=document.getElementById("remoteShareAudio");
+    if(audio){ audio.pause?.(); audio.srcObject=null; audio.muted=true; }
     if(card) card.classList.remove("sharing");
     Object.values(peerConnections).forEach(pc=>pc.close());
     peerConnections = {};
@@ -2168,13 +2248,21 @@ function makePeer(userId){
     pc.ontrack = e=>{
         if(isScreenShareHost) return;
         const video=document.getElementById("screenShareVideo");
+        const audio=document.getElementById("remoteShareAudio");
+        const stream=e.streams?.[0] || new MediaStream([e.track]);
         if(video){
-            video.srcObject=e.streams[0];
-            video.muted=false;
-            video.volume=1;
+            video.srcObject=stream;
+            video.muted=true;
+            video.volume=0;
             video.play?.().catch(()=>{});
-            document.querySelector(".media-card")?.classList.add("sharing");
         }
+        if(audio && e.track?.kind==="audio"){
+            audio.srcObject=new MediaStream([e.track]);
+            audio.muted=false;
+            audio.volume=1;
+            audio.play?.().catch(()=>{});
+        }
+        document.querySelector(".media-card")?.classList.add("sharing");
     };
     pc.onconnectionstatechange = ()=>{
         if(["failed","closed","disconnected"].includes(pc.connectionState)){
@@ -2574,6 +2662,41 @@ function closeImageLightbox(event){
     if(img) img.src="";
 }
 
+function setupMobileKeyboardViewport(){
+    const input=document.getElementById("chatInput");
+    if(!input) return;
+    const isMobile=()=>window.matchMedia && window.matchMedia("(max-width:700px)").matches;
+    let closeTimer=null;
+    const openKeyboardMode=()=>{
+        if(!isMobile()) return;
+        clearTimeout(closeTimer);
+        document.body.classList.add("hangout-keyboard-open");
+        requestAnimationFrame(()=>{
+            const messages=document.getElementById("messages");
+            if(messages) messages.scrollTop=messages.scrollHeight;
+        });
+    };
+    const closeKeyboardMode=()=>{
+        clearTimeout(closeTimer);
+        closeTimer=setTimeout(()=>{
+            if(document.activeElement!==input) document.body.classList.remove("hangout-keyboard-open");
+        },180);
+    };
+    input.addEventListener("focus",openKeyboardMode);
+    input.addEventListener("blur",closeKeyboardMode);
+    if(window.visualViewport){
+        visualViewport.addEventListener("resize",()=>{
+            if(!isMobile()) return;
+            if(document.activeElement===input && visualViewport.height < window.innerHeight - 80){
+                openKeyboardMode();
+            }
+        });
+    }
+    window.addEventListener("orientationchange",()=>{
+        document.body.classList.remove("hangout-keyboard-open");
+    });
+}
+
 function initChatExtras(){
     const input=document.getElementById("chatInput");
     document.addEventListener("click",event=>{
@@ -2584,12 +2707,14 @@ function initChatExtras(){
 }
 
 initChatExtras();
+setupMobileKeyboardViewport();
 
 function initMediaArea(){
     const card = document.querySelector(".media-card");
     if(!card) return;
     card.addEventListener("click",(event)=>{
-        if(event.target.closest(".media-controls")) return;
+        if(event.target.closest(".media-controls") || event.target.closest(".share-settings")) return;
+        enableRemoteShareAudio();
         showMediaControls();
     });
 }
