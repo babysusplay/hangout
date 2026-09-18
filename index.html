@@ -1013,15 +1013,21 @@ button{
         left:0;
         right:0;
         bottom:0;
-        width:100%;
+        width:auto;
         box-sizing:border-box;
         background:rgba(10,11,18,.96);
         border-top:1px solid var(--border);
         padding-bottom:max(6px, env(safe-area-inset-bottom));
         transform:translateZ(0);
+        z-index:999;
     }
     body.hangout-keyboard-open .messages{
         padding-bottom:78px;
+    }
+    body.hangout-keyboard-open .room-body,
+    body.hangout-keyboard-open .main-panel,
+    body.hangout-keyboard-open .chat-panel{
+        transform:none !important;
     }
 }
 
@@ -1286,9 +1292,9 @@ button{
     right:6px;
     bottom:52px;
     width:min(330px,calc(100vw - 24px));
-    max-height:300px;
-    overflow:auto;
-    padding:10px;
+    max-height:320px;
+    overflow:hidden;
+    padding:8px;
     background:#0d0f18;
     border:1px solid var(--border);
     border-radius:14px;
@@ -1297,29 +1303,46 @@ button{
     display:none;
 }
 .emoji-picker.active{display:block;}
-.emoji-picker-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:#9da3b2;font-size:10px;font-weight:700;}
+.emoji-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;background:#080910;border-radius:8px;padding:3px;margin-bottom:8px;}
+.emoji-tab{border:0;background:transparent;color:#8f94a3;border-radius:6px;padding:7px 4px;font-size:9px;font-weight:700;cursor:pointer;}
+.emoji-tab.active{background:#252735;color:#fff;}
+.emoji-panel{display:none;max-height:255px;overflow:auto;padding:2px;}
+.emoji-panel.active{display:block;}
+.emoji-search-row{display:flex;gap:5px;margin-bottom:7px;}
+.emoji-search{flex:1;min-width:0;background:#080910;border:1px solid var(--border);border-radius:8px;color:#fff;padding:7px 9px;font-size:10px;outline:none;}
+.emoji-search-btn{border:0;background:#6d3df5;color:#fff;border-radius:8px;padding:0 10px;font-size:10px;font-weight:700;cursor:pointer;}
 .emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;}
 .emoji-item{border:0;background:transparent;border-radius:8px;font-size:20px;aspect-ratio:1;cursor:pointer;}
 .emoji-item:hover{background:rgba(139,92,246,.12);}
 .custom-asset-section{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);}
 .custom-sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
-.custom-sticker-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;}
+.custom-sticker-card{position:relative;min-width:0;}
+.custom-sticker-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;display:block;}
+.custom-asset-delete{position:absolute;right:3px;top:3px;width:18px;height:18px;border:0;border-radius:50%;background:rgba(0,0,0,.78);color:#fff;font-size:11px;line-height:18px;padding:0;cursor:pointer;z-index:2;}
 .chat-sticker-message{margin-top:5px;width:128px;height:128px;max-width:100%;object-fit:contain;display:block;cursor:zoom-in;}
 .chat-plus{font-size:18px;font-weight:700;}
 .custom-emoji-section{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);}
 .custom-emoji-title{display:flex;align-items:center;justify-content:space-between;color:#7f8594;font-size:9px;margin-bottom:6px;}
 .custom-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;}
-.custom-emoji-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;}
+.custom-emoji-card{position:relative;min-width:0;}
+.custom-emoji-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;display:block;}
 .custom-emoji-upload{border:1px dashed #383c49;background:#11131d;color:#a9adba;border-radius:8px;cursor:pointer;font-size:9px;min-height:34px;padding:5px;}
+.gif-results{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;}
+.gif-result{width:100%;height:82px;object-fit:cover;border-radius:8px;background:#080910;cursor:pointer;border:1px solid transparent;}
+.gif-result:hover{border-color:#6d3df5;}
+.gif-empty{padding:20px 8px;text-align:center;color:#6f7584;font-size:10px;}
+.gif-message-img{margin-top:5px;width:180px;max-width:100%;max-height:180px;object-fit:cover;border-radius:10px;display:block;cursor:zoom-in;}
 .chat-image-message{margin-top:5px;max-width:220px;max-height:180px;border-radius:10px;display:block;object-fit:cover;cursor:zoom-in;border:1px solid rgba(255,255,255,.08);}
 .image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:20px;z-index:10000;overscroll-behavior:contain;}
 .image-lightbox.active{display:flex;}
 .image-lightbox img{max-width:94vw;max-height:90vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.55);}
 .image-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border:0;border-radius:50%;background:rgba(20,22,30,.9);color:#fff;font-size:20px;cursor:pointer;}
 @media(max-width:700px){
-    .emoji-picker{right:0;bottom:48px;width:min(290px,calc(100vw - 16px));max-height:260px;}
+    .emoji-picker{right:0;bottom:48px;width:min(300px,calc(100vw - 16px));max-height:285px;}
+    .emoji-panel{max-height:225px;}
     .emoji-grid,.custom-emoji-grid{grid-template-columns:repeat(7,1fr);}
     .custom-sticker-grid{grid-template-columns:repeat(4,1fr);}
+    .gif-results{grid-template-columns:repeat(2,1fr);}
     .chat-image-message{max-width:150px;max-height:130px;}
 }
 
@@ -1682,23 +1705,36 @@ button{
                     <div class="chat-input-wrap">
 
                         <div class="emoji-picker" id="emojiPicker">
-                            <div class="emoji-picker-head">
-                                <span>UPLOADS</span>
-                                <span>Room custom assets</span>
+                            <div class="emoji-tabs">
+                                <button class="emoji-tab active" data-tab="emoji" onclick="switchEmojiTab('emoji',event)">Emoji</button>
+                                <button class="emoji-tab" data-tab="gif" onclick="switchEmojiTab('gif',event)">GIFs</button>
+                                <button class="emoji-tab" data-tab="sticker" onclick="switchEmojiTab('sticker',event)">Stickers</button>
                             </div>
 
-                            <div class="custom-asset-section">
+                            <div class="emoji-panel active" id="emojiPanel">
                                 <div class="custom-emoji-title">
-                                    <span>EMOJI • 128 × 128</span>
-                                    <label class="custom-emoji-upload">＋ Upload <input id="customEmojiInput" type="file" accept="image/*" hidden onchange="uploadCustomEmoji(event)"></label>
+                                    <span>EMOJI</span>
+                                    <label class="custom-emoji-upload">＋ Add <input id="customEmojiInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomEmoji(event)"></label>
                                 </div>
-                                <div class="custom-emoji-grid" id="customEmojiGrid"></div>
+                                <div class="emoji-grid" id="emojiGrid"></div>
+                                <div class="custom-asset-section">
+                                    <div class="custom-emoji-title"><span>MY EMOJIS</span></div>
+                                    <div class="custom-emoji-grid" id="customEmojiGrid"></div>
+                                </div>
                             </div>
 
-                            <div class="custom-asset-section">
+                            <div class="emoji-panel" id="gifPanel">
+                                <div class="emoji-search-row">
+                                    <input class="emoji-search" id="gifSearchInput" placeholder="Search GIFs..." onkeydown="if(event.key==='Enter') searchGifs()">
+                                    <button class="emoji-search-btn" onclick="searchGifs(event)">Search</button>
+                                </div>
+                                <div class="gif-results" id="gifResults"><div class="gif-empty">Search for a GIF</div></div>
+                            </div>
+
+                            <div class="emoji-panel" id="stickerPanel">
                                 <div class="custom-emoji-title">
-                                    <span>STICKER • 512 × 512</span>
-                                    <label class="custom-emoji-upload">＋ Upload <input id="customStickerInput" type="file" accept="image/*" hidden onchange="uploadCustomSticker(event)"></label>
+                                    <span>MY STICKERS</span>
+                                    <label class="custom-emoji-upload">＋ Add <input id="customStickerInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomSticker(event)"></label>
                                 </div>
                                 <div class="custom-sticker-grid" id="customStickerGrid"></div>
                             </div>
@@ -2198,6 +2234,7 @@ async function setupRoomRealtime(){
             else if(msg.message_type === "custom_sticker") loadCustomStickerAsset(msg.message);
             else if(msg.message_type === "emoji_image") appendRemoteEmoji(msg);
             else if(msg.message_type === "sticker_image") appendRemoteSticker(msg);
+            else if(msg.message_type === "custom_asset_remove") removeCustomAssetLocal(msg.message);
             else if(msg.message_type === "system") addSystemMessage(msg.message);
             else if(msg.message_type === "signal") handleSignalMessage(msg);
         })
@@ -2333,8 +2370,53 @@ function appendRemoteMessage(msg){
 }
 
 function appendRemoteGif(msg){
-    /* Kept only for old messages; new GIF sending is removed. */
-    appendChatMessage(msg.user_name,"GIF",true);
+    let data;
+    try{ data=JSON.parse(msg.message); }catch(e){ data={url:msg.message}; }
+    appendGifMessage(msg.user_name,data?.url,data?.preview);
+}
+
+function appendGifMessage(name,url,preview){
+    if(!url) return;
+    const messages=document.getElementById("messages");
+    clearChatEmpty();
+    const message=document.createElement("div");
+    message.className="message";
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.textContent=(name||"?").charAt(0).toUpperCase();
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=name||"Unknown";
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    const img=document.createElement("img");
+    img.className="gif-message-img";
+    img.src=preview||url;
+    img.alt="GIF";
+    img.loading="lazy";
+    img.onclick=(e)=>{e.stopPropagation();openImageLightbox(url);};
+    content.append(top,img);
+    message.append(avatar,content);
+    messages.appendChild(message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+async function sendGif(url){
+    if(!currentRoomCode || !url) return;
+    const payload=JSON.stringify({url,preview:url});
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:payload,message_type:"gif"
+    });
+    if(error){console.error(error);showToast("GIF failed to send");return;}
+    appendGifMessage(currentUserName,url,url);
+    document.getElementById("emojiPicker")?.classList.remove("active");
 }
 
 function appendRemoteImage(msg){
@@ -2415,6 +2497,10 @@ function appendImageMessage(name,src){
     messages.scrollTop=messages.scrollHeight;
 }
 
+const COMMON_EMOJIS = [
+"😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😎","🤩","🥳","😏","😋","😛","😜","🤪","🤔","🫡","🤐","🤨","😐","😑","😶","🙄","😬","😮","😴","🤤","😪","😫","😵","🤯","😱","😨","😰","😥","😢","😭","😤","😡","🤬","🤗","🫶","❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","🔥","✨","⭐","🌟","💯","🎉","🎊","👍","👎","👏","🙌","🙏","👌","✌️","🤝","💀","👀","💩","🤡","👻","😈","🤖","🐶","🐱","🐼","🦊","🐸","🍕","🍔","🍟","🍿","🍎","☕","🎂","⚽","🏏","🎮","🎵","🚀","💎","🎁","💰"
+];
+
 function toggleEmojiPicker(event){
     event?.stopPropagation();
     const picker=document.getElementById("emojiPicker");
@@ -2423,9 +2509,43 @@ function toggleEmojiPicker(event){
     if(picker.classList.contains("active")) renderEmojiPicker();
 }
 
+function switchEmojiTab(tab,event){
+    event?.stopPropagation();
+    document.querySelectorAll(".emoji-tab").forEach(btn=>btn.classList.toggle("active",btn.dataset.tab===tab));
+    document.querySelectorAll(".emoji-panel").forEach(panel=>panel.classList.remove("active"));
+    const panel=document.getElementById(tab+"Panel");
+    if(panel) panel.classList.add("active");
+    if(tab==="emoji") renderEmojiPicker();
+}
+
 function renderEmojiPicker(){
+    renderStandardEmojis();
     renderCustomEmojis();
     renderCustomStickers();
+}
+
+function renderStandardEmojis(){
+    const grid=document.getElementById("emojiGrid");
+    if(!grid || grid.children.length) return;
+    COMMON_EMOJIS.forEach(emoji=>{
+        const btn=document.createElement("button");
+        btn.className="emoji-item";
+        btn.type="button";
+        btn.textContent=emoji;
+        btn.title="Send "+emoji;
+        btn.onclick=(e)=>{e.stopPropagation();sendTextEmoji(emoji);};
+        grid.appendChild(btn);
+    });
+}
+
+function sendTextEmoji(emoji){
+    const input=document.getElementById("chatInput");
+    if(!input) return;
+    const start=input.selectionStart ?? input.value.length;
+    const end=input.selectionEnd ?? input.value.length;
+    input.value=input.value.slice(0,start)+emoji+input.value.slice(end);
+    input.focus();
+    input.setSelectionRange(start+emoji.length,start+emoji.length);
 }
 
 function renderCustomEmojis(){
@@ -2433,13 +2553,25 @@ function renderCustomEmojis(){
     if(!grid) return;
     grid.innerHTML="";
     customEmojiAssets.forEach(asset=>{
+        const card=document.createElement("div");
+        card.className="custom-emoji-card";
         const img=document.createElement("img");
         img.className="custom-emoji-img";
         img.src=asset.src;
         img.alt=asset.name||"Custom emoji";
         img.title=(asset.name||"Custom emoji")+" • 128×128";
         img.onclick=()=>sendCustomEmoji(asset.src);
-        grid.appendChild(img);
+        card.appendChild(img);
+        if(roomOwnerId===sessionUserId){
+            const del=document.createElement("button");
+            del.className="custom-asset-delete";
+            del.type="button";
+            del.textContent="×";
+            del.title="Remove emoji";
+            del.onclick=(e)=>{e.stopPropagation();removeCustomAsset(asset,"emoji");};
+            card.appendChild(del);
+        }
+        grid.appendChild(card);
     });
 }
 
@@ -2448,14 +2580,65 @@ function renderCustomStickers(){
     if(!grid) return;
     grid.innerHTML="";
     customStickerAssets.forEach(asset=>{
+        const card=document.createElement("div");
+        card.className="custom-sticker-card";
         const img=document.createElement("img");
         img.className="custom-sticker-img";
         img.src=asset.src;
         img.alt=asset.name||"Custom sticker";
         img.title=(asset.name||"Custom sticker")+" • 512×512";
         img.onclick=()=>sendCustomSticker(asset.src);
-        grid.appendChild(img);
+        card.appendChild(img);
+        if(roomOwnerId===sessionUserId){
+            const del=document.createElement("button");
+            del.className="custom-asset-delete";
+            del.type="button";
+            del.textContent="×";
+            del.title="Remove sticker";
+            del.onclick=(e)=>{e.stopPropagation();removeCustomAsset(asset,"sticker");};
+            card.appendChild(del);
+        }
+        grid.appendChild(card);
     });
+}
+
+let gifSearchTimer=null;
+async function searchGifs(event){
+    event?.stopPropagation();
+    const input=document.getElementById("gifSearchInput");
+    const results=document.getElementById("gifResults");
+    const query=input?.value.trim();
+    if(!results || !query) return;
+    results.innerHTML='<div class="gif-empty">Searching…</div>';
+    clearTimeout(gifSearchTimer);
+    gifSearchTimer=setTimeout(async()=>{
+        try{
+            const endpoint="https://tenor.googleapis.com/v2/search?key=LIVDSRZULELA&client_key=hangout_web&limit=18&q="+encodeURIComponent(query);
+            const response=await fetch(endpoint);
+            if(!response.ok) throw new Error("GIF search failed");
+            const data=await response.json();
+            const items=(data.results||[]).map(item=>{
+                const formats=item.media_formats||{};
+                const gif=formats.gif||formats.mediumgif||formats.tinygif||formats.mp4;
+                const preview=formats.tinygif||formats.nanogif||formats.gif||gif;
+                return {url:gif?.url,preview:preview?.url||gif?.url};
+            }).filter(x=>x.url);
+            results.innerHTML="";
+            if(!items.length){results.innerHTML='<div class="gif-empty">No GIFs found</div>';return;}
+            items.forEach(item=>{
+                const img=document.createElement("img");
+                img.className="gif-result";
+                img.src=item.preview;
+                img.alt="GIF";
+                img.loading="lazy";
+                img.onclick=(e)=>{e.stopPropagation();sendGif(item.url);};
+                results.appendChild(img);
+            });
+        }catch(error){
+            console.error(error);
+            results.innerHTML='<div class="gif-empty">GIF search is unavailable right now</div>';
+        }
+    },120);
 }
 
 let customEmojiAssets=[];
@@ -2524,6 +2707,40 @@ function appendStickerMessage(name,src){
     messages.scrollTop=messages.scrollHeight;
 }
 
+async function removeCustomAsset(asset,type){
+    if(roomOwnerId!==sessionUserId || !asset?.id || !currentRoomCode) return;
+    if(!confirm("Remove this "+(type==="emoji"?"emoji":"sticker")+" from the room?")) return;
+    const messageType=type==="emoji"?"custom_emoji":"custom_sticker";
+    try{
+        const {error}=await supabaseClient.from("room_messages")
+            .delete()
+            .eq("room_code",currentRoomCode)
+            .eq("message_type",messageType)
+            .eq("message",JSON.stringify(asset));
+        if(error) throw error;
+        if(type==="emoji") customEmojiAssets=customEmojiAssets.filter(x=>x.id!==asset.id);
+        else customStickerAssets=customStickerAssets.filter(x=>x.id!==asset.id);
+        renderEmojiPicker();
+        await supabaseClient.from("room_messages").insert({
+            room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+            message:JSON.stringify({asset_id:asset.id,asset_type:type}),message_type:"custom_asset_remove"
+        });
+        showToast((type==="emoji"?"Emoji":"Sticker")+" removed ✓");
+    }catch(error){
+        console.error(error);
+        showToast("Could not remove "+(type==="emoji"?"emoji":"sticker"));
+    }
+}
+
+function removeCustomAssetLocal(raw){
+    let data;
+    try{data=typeof raw==="string"?JSON.parse(raw):raw;}catch(e){return;}
+    if(!data?.asset_id) return;
+    if(data.asset_type==="emoji") customEmojiAssets=customEmojiAssets.filter(x=>x.id!==data.asset_id);
+    if(data.asset_type==="sticker") customStickerAssets=customStickerAssets.filter(x=>x.id!==data.asset_id);
+    renderEmojiPicker();
+}
+
 async function sendCustomSticker(src){
     if(!currentRoomCode || !src) return;
     const {error}=await supabaseClient.from("room_messages").insert({
@@ -2588,6 +2805,8 @@ function fileToDataURL(file,maxSize,quality=.78){
         if(!file || !file.type.startsWith("image/")) return reject(new Error("Invalid image"));
         const reader=new FileReader();
         reader.onload=()=>{
+            // Keep animated GIF/WebP files untouched so animation is not lost.
+            if(file.type==="image/gif" || file.type==="image/webp") return resolve(reader.result);
             const img=new Image();
             img.onload=()=>{
                 const scale=Math.min(1,maxSize/Math.max(img.width,img.height));
@@ -2664,36 +2883,72 @@ function closeImageLightbox(event){
 
 function setupMobileKeyboardViewport(){
     const input=document.getElementById("chatInput");
-    if(!input) return;
+    const area=document.querySelector(".chat-input-area");
+    const panel=document.querySelector(".chat-panel");
+    if(!input || !area) return;
     const isMobile=()=>window.matchMedia && window.matchMedia("(max-width:700px)").matches;
     let closeTimer=null;
+
+    const positionInputAboveKeyboard=()=>{
+        if(!isMobile() || !document.body.classList.contains("hangout-keyboard-open")) return;
+        const vv=window.visualViewport;
+        const panelRect=panel?.getBoundingClientRect();
+        const viewportHeight=window.innerHeight;
+        const visibleHeight=vv?.height ?? viewportHeight;
+        const offsetTop=vv?.offsetTop ?? 0;
+        const keyboardOffset=Math.max(0,viewportHeight-visibleHeight-offsetTop);
+        if(panelRect){
+            area.style.left=Math.round(panelRect.left)+"px";
+            area.style.width=Math.round(panelRect.width)+"px";
+            area.style.right="auto";
+        }else{
+            area.style.left="0";
+            area.style.width="100%";
+            area.style.right="auto";
+        }
+        area.style.bottom=keyboardOffset+"px";
+    };
+
+    const resetInputPosition=()=>{
+        area.style.left="";
+        area.style.right="";
+        area.style.width="";
+        area.style.bottom="";
+    };
+
     const openKeyboardMode=()=>{
         if(!isMobile()) return;
         clearTimeout(closeTimer);
         document.body.classList.add("hangout-keyboard-open");
         requestAnimationFrame(()=>{
+            positionInputAboveKeyboard();
             const messages=document.getElementById("messages");
             if(messages) messages.scrollTop=messages.scrollHeight;
         });
     };
+
     const closeKeyboardMode=()=>{
         clearTimeout(closeTimer);
         closeTimer=setTimeout(()=>{
-            if(document.activeElement!==input) document.body.classList.remove("hangout-keyboard-open");
+            if(document.activeElement!==input){
+                document.body.classList.remove("hangout-keyboard-open");
+                resetInputPosition();
+            }
         },180);
     };
+
     input.addEventListener("focus",openKeyboardMode);
     input.addEventListener("blur",closeKeyboardMode);
     if(window.visualViewport){
-        visualViewport.addEventListener("resize",()=>{
-            if(!isMobile()) return;
-            if(document.activeElement===input && visualViewport.height < window.innerHeight - 80){
-                openKeyboardMode();
-            }
-        });
+        visualViewport.addEventListener("resize",positionInputAboveKeyboard);
+        visualViewport.addEventListener("scroll",positionInputAboveKeyboard);
     }
+    window.addEventListener("resize",()=>{
+        if(document.body.classList.contains("hangout-keyboard-open")) positionInputAboveKeyboard();
+    });
     window.addEventListener("orientationchange",()=>{
         document.body.classList.remove("hangout-keyboard-open");
+        resetInputPosition();
     });
 }
 
@@ -2832,6 +3087,7 @@ async function loadExistingMessages(){
         else if(msg.message_type==="custom_sticker") loadCustomStickerAsset(msg.message);
         else if(msg.message_type==="emoji_image") appendRemoteEmoji(msg);
         else if(msg.message_type==="sticker_image") appendRemoteSticker(msg);
+        else if(msg.message_type==="custom_asset_remove") removeCustomAssetLocal(msg.message);
     });
 }
 
