@@ -1826,7 +1826,10 @@ async function enterRoom(roomName,code){
     document.getElementById("room").style.display="block";
     document.getElementById("displayRoomName").textContent=roomName;
     document.getElementById("roomCodeDisplay").textContent=code;
-    document.getElementById("currentUser").textContent=currentUserName;
+    const currentUserElement = document.getElementById("currentUser");
+    if(currentUserElement){
+        currentUserElement.textContent = currentUserName;
+    }
     clearChatEmpty();
     await addMember();
     await loadExistingMessages();
