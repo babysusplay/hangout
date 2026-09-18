@@ -1127,11 +1127,46 @@ button{
 }
 
 @media(max-width:700px) and (orientation:portrait){
-    /* Keep the same 75/25 room model in portrait too, but let the
-       browser/device decide the available width without page scrolling. */
-    .chat-panel{
-        min-width:0;
+    /* Phone held normally: media stays on top, chat stays underneath.
+       Keep the room locked to the viewport so the page never scrolls. */
+    .room-body{
+        flex-direction:column;
     }
+    .main-panel{
+        width:100%;
+        height:75%;
+        flex:0 0 75%;
+    }
+    .chat-panel{
+        width:100%;
+        height:25%;
+        flex:0 0 25%;
+        min-width:0;
+        border-left:0;
+        border-top:1px solid var(--border);
+    }
+    .media-area{padding:0;}
+}
+
+@media(max-width:700px) and (orientation:landscape){
+    /* Turn the phone sideways: media 75% left, chat 25% right. */
+    .room-body{
+        flex-direction:row;
+    }
+    .main-panel{
+        width:75%;
+        height:100%;
+        flex:0 0 75%;
+    }
+    .chat-panel{
+        width:25%;
+        height:100%;
+        flex:0 0 25%;
+        min-width:0;
+        border-left:1px solid var(--border);
+        border-top:0;
+    }
+    .media-area{padding:0;}
 }
 
 
@@ -1159,19 +1194,25 @@ button{
 .emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;}
 .emoji-item{border:0;background:transparent;border-radius:8px;font-size:20px;aspect-ratio:1;cursor:pointer;}
 .emoji-item:hover{background:rgba(139,92,246,.12);}
+.custom-asset-section{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);}
+.custom-sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+.custom-sticker-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;}
+.chat-sticker-message{margin-top:5px;width:128px;height:128px;max-width:100%;object-fit:contain;display:block;cursor:zoom-in;}
+.chat-plus{font-size:18px;font-weight:700;}
 .custom-emoji-section{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);}
 .custom-emoji-title{display:flex;align-items:center;justify-content:space-between;color:#7f8594;font-size:9px;margin-bottom:6px;}
 .custom-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;}
 .custom-emoji-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;}
 .custom-emoji-upload{border:1px dashed #383c49;background:#11131d;color:#a9adba;border-radius:8px;cursor:pointer;font-size:9px;min-height:34px;padding:5px;}
 .chat-image-message{margin-top:5px;max-width:220px;max-height:180px;border-radius:10px;display:block;object-fit:cover;cursor:zoom-in;border:1px solid rgba(255,255,255,.08);}
-.image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
+.image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:20px;z-index:10000;overscroll-behavior:contain;}
 .image-lightbox.active{display:flex;}
 .image-lightbox img{max-width:94vw;max-height:90vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.55);}
 .image-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border:0;border-radius:50%;background:rgba(20,22,30,.9);color:#fff;font-size:20px;cursor:pointer;}
 @media(max-width:700px){
     .emoji-picker{right:0;bottom:48px;width:min(290px,calc(100vw - 16px));max-height:260px;}
     .emoji-grid,.custom-emoji-grid{grid-template-columns:repeat(7,1fr);}
+    .custom-sticker-grid{grid-template-columns:repeat(4,1fr);}
     .chat-image-message{max-width:150px;max-height:130px;}
 }
 
@@ -1518,20 +1559,38 @@ button{
 
                         <div class="emoji-picker" id="emojiPicker">
                             <div class="emoji-picker-head">
-                                <span>EMOJIS</span>
-                                <span>Tap to send • Upload custom</span>
+                                <span>UPLOADS</span>
+                                <span>Room custom assets</span>
                             </div>
-                            <div class="emoji-grid" id="emojiGrid"></div>
-                            <div class="custom-emoji-section">
+
+                            <div class="custom-asset-section">
                                 <div class="custom-emoji-title">
-                                    <span>CUSTOM EMOJIS</span>
+                                    <span>EMOJI • 128 × 128</span>
                                     <label class="custom-emoji-upload">＋ Upload <input id="customEmojiInput" type="file" accept="image/*" hidden onchange="uploadCustomEmoji(event)"></label>
                                 </div>
                                 <div class="custom-emoji-grid" id="customEmojiGrid"></div>
                             </div>
+
+                            <div class="custom-asset-section">
+                                <div class="custom-emoji-title">
+                                    <span>STICKER • 512 × 512</span>
+                                    <label class="custom-emoji-upload">＋ Upload <input id="customStickerInput" type="file" accept="image/*" hidden onchange="uploadCustomSticker(event)"></label>
+                                </div>
+                                <div class="custom-sticker-grid" id="customStickerGrid"></div>
+                            </div>
                         </div>
 
                         <div class="chat-input">
+
+                            <input id="chatImageInput" type="file" accept="image/*" hidden onchange="sendChatImage(event)">
+
+                            <button
+                                class="chat-action chat-plus"
+                                title="Send picture"
+                                onclick="document.getElementById('chatImageInput').click()"
+                            >
+                                +
+                            </button>
 
                             <input
                                 id="chatInput"
@@ -1539,22 +1598,12 @@ button{
                                 onkeydown="handleChat(event)"
                             >
 
-                            <input id="chatImageInput" type="file" accept="image/*" hidden onchange="sendChatImage(event)">
-
                             <button
                                 class="chat-action"
-                                title="Emoji & Custom Emoji"
+                                title="Emoji & Custom Emoji / Sticker"
                                 onclick="toggleEmojiPicker(event)"
                             >
                                 😊
-                            </button>
-
-                            <button
-                                class="chat-action"
-                                title="Send picture"
-                                onclick="document.getElementById('chatImageInput').click()"
-                            >
-                                🖼️
                             </button>
 
                             <button
@@ -1736,7 +1785,6 @@ function initMediaArea(){
     const card = document.querySelector(".media-card");
     if(!card) return;
     card.addEventListener("click",toggleMediaControls);
-    card.addEventListener("touchstart",toggleMediaControls,{passive:true});
 }
 
 /* =========================
@@ -1820,7 +1868,9 @@ async function setupRoomRealtime(){
             else if(msg.message_type === "gif") appendRemoteGif(msg);
             else if(msg.message_type === "image") appendRemoteImage(msg);
             else if(msg.message_type === "custom_emoji") loadCustomEmojiAsset(msg.message);
+            else if(msg.message_type === "custom_sticker") loadCustomStickerAsset(msg.message);
             else if(msg.message_type === "emoji_image") appendRemoteEmoji(msg);
+            else if(msg.message_type === "sticker_image") appendRemoteSticker(msg);
             else if(msg.message_type === "system") addSystemMessage(msg.message);
             else if(msg.message_type === "signal") handleSignalMessage(msg);
         })
@@ -1949,6 +1999,12 @@ function appendRemoteImage(msg){
     appendImageMessage(msg.user_name,data?.src);
 }
 
+function appendRemoteSticker(msg){
+    let data;
+    try{ data=JSON.parse(msg.message); }catch(e){ return; }
+    appendStickerMessage(msg.user_name,data?.src);
+}
+
 function appendRemoteEmoji(msg){
     let data;
     try{ data=JSON.parse(msg.message); }catch(e){ return; }
@@ -2008,20 +2064,12 @@ function appendImageMessage(name,src){
     img.src=src;
     img.alt="Chat image";
     img.loading="lazy";
-    img.onclick=()=>openImageLightbox(src);
+    img.onclick=(e)=>{ e.stopPropagation(); openImageLightbox(src); };
     content.append(top,img);
     message.append(avatar,content);
     messages.appendChild(message);
     messages.scrollTop=messages.scrollHeight;
 }
-
-const standardEmojis=[
-    "😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰",
-    "😘","😎","🤩","🥳","😏","😋","😛","🤗","🤔","🫡","🤭","🤫","😐","😑","😶","🙄",
-    "😴","🤤","😢","😭","😤","😡","🤬","😱","😳","🥺","😈","👻","💀","🤖","🔥","✨",
-    "❤️","🧡","💛","💚","💙","💜","🖤","🤍","💯","👍","👎","👏","🙌","🙏","🎉","🎊",
-    "💀","☠️","👀","💔","💖","💗","💥","⭐","🌟","🍿","🎬","🎮","🚀","💎","🏆","😂"
-];
 
 function toggleEmojiPicker(event){
     event?.stopPropagation();
@@ -2032,23 +2080,8 @@ function toggleEmojiPicker(event){
 }
 
 function renderEmojiPicker(){
-    const grid=document.getElementById("emojiGrid");
-    if(!grid) return;
-    grid.innerHTML="";
-    standardEmojis.forEach(emoji=>{
-        const btn=document.createElement("button");
-        btn.type="button";
-        btn.className="emoji-item";
-        btn.textContent=emoji;
-        btn.onclick=()=>sendEmoji(emoji);
-        grid.appendChild(btn);
-    });
     renderCustomEmojis();
-}
-
-async function sendEmoji(emoji){
-    await sendChatPayload(emoji,"text");
-    document.getElementById("emojiPicker")?.classList.remove("active");
+    renderCustomStickers();
 }
 
 function renderCustomEmojis(){
@@ -2060,14 +2093,29 @@ function renderCustomEmojis(){
         img.className="custom-emoji-img";
         img.src=asset.src;
         img.alt=asset.name||"Custom emoji";
-        img.title=asset.name||"Custom emoji";
+        img.title=(asset.name||"Custom emoji")+" • 128×128";
         img.onclick=()=>sendCustomEmoji(asset.src);
         grid.appendChild(img);
     });
 }
 
-let customEmojiAssets=[];
+function renderCustomStickers(){
+    const grid=document.getElementById("customStickerGrid");
+    if(!grid) return;
+    grid.innerHTML="";
+    customStickerAssets.forEach(asset=>{
+        const img=document.createElement("img");
+        img.className="custom-sticker-img";
+        img.src=asset.src;
+        img.alt=asset.name||"Custom sticker";
+        img.title=(asset.name||"Custom sticker")+" • 512×512";
+        img.onclick=()=>sendCustomSticker(asset.src);
+        grid.appendChild(img);
+    });
+}
 
+let customEmojiAssets=[];
+let customStickerAssets=[];
 
 function appendEmojiMessage(name,src){
     if(!src || !/^data:image\//i.test(src)) return;
@@ -2099,6 +2147,77 @@ function appendEmojiMessage(name,src){
     message.append(avatar,content);
     messages.appendChild(message);
     messages.scrollTop=messages.scrollHeight;
+}
+
+function appendStickerMessage(name,src){
+    if(!src || !/^data:image\//i.test(src)) return;
+    const messages=document.getElementById("messages");
+    clearChatEmpty();
+    const message=document.createElement("div");
+    message.className="message";
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.textContent=(name||"?").charAt(0).toUpperCase();
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=name||"Unknown";
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    const img=document.createElement("img");
+    img.className="chat-sticker-message";
+    img.src=src;
+    img.alt="Custom sticker";
+    img.onclick=(e)=>{ e.stopPropagation(); openImageLightbox(src); };
+    content.append(top,img);
+    message.append(avatar,content);
+    messages.appendChild(message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+async function sendCustomSticker(src){
+    if(!currentRoomCode || !src) return;
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:JSON.stringify({src}),message_type:"sticker_image"
+    });
+    if(error){ console.error(error); showToast("Sticker failed to send"); return; }
+    appendStickerMessage(currentUserName,src);
+    document.getElementById("emojiPicker")?.classList.remove("active");
+}
+
+function loadCustomStickerAsset(raw){
+    let asset;
+    try{ asset=JSON.parse(raw); }catch(e){ return; }
+    if(!asset?.src || !/^data:image\//i.test(asset.src)) return;
+    if(customStickerAssets.some(x=>x.id===asset.id)) return;
+    customStickerAssets.push(asset);
+    renderCustomStickers();
+}
+
+async function uploadCustomSticker(event){
+    const file=event.target.files?.[0];
+    event.target.value="";
+    if(!file || !currentRoomCode) return;
+    try{
+        const src=await fileToDataURL(file,512,.82);
+        const asset={id:(crypto.randomUUID?crypto.randomUUID():Date.now()+""),name:file.name.replace(/\.[^.]+$/,""),src};
+        const {error}=await supabaseClient.from("room_messages").insert({
+            room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+            message:JSON.stringify(asset),message_type:"custom_sticker"
+        });
+        if(error) throw error;
+        loadCustomStickerAsset(JSON.stringify(asset));
+        showToast("Custom sticker added ✓");
+    }catch(error){
+        console.error(error);
+        showToast("Sticker upload failed");
+    }
 }
 
 async function sendCustomEmoji(src){
@@ -2148,7 +2267,7 @@ async function uploadCustomEmoji(event){
     event.target.value="";
     if(!file || !currentRoomCode) return;
     try{
-        const src=await fileToDataURL(file,96,.72);
+        const src=await fileToDataURL(file,128,.78);
         const asset={id:(crypto.randomUUID?crypto.randomUUID():Date.now()+""),name:file.name.replace(/\.[^.]+$/,""),src};
         const {error}=await supabaseClient.from("room_messages").insert({
             room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
