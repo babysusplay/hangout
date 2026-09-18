@@ -821,6 +821,29 @@ button{
 }
 
 /* =========================
+   SCREEN SHARE SETTINGS / QUALITY
+========================= */
+.share-settings{
+    position:absolute;
+    right:12px;
+    bottom:62px;
+    width:230px;
+    padding:12px;
+    border:1px solid var(--border);
+    border-radius:13px;
+    background:rgba(12,14,21,.96);
+    box-shadow:0 16px 45px rgba(0,0,0,.5);
+    z-index:20;
+    display:none;
+}
+.share-settings.show{display:block;}
+.share-settings-title{font-size:12px;font-weight:700;margin-bottom:9px;}
+.share-settings label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:9px;color:#a7adbb;}
+.share-settings select{background:#080910;color:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 7px;font-size:9px;outline:none;max-width:125px;}
+.share-settings select:disabled{opacity:.45;cursor:not-allowed;}
+.share-settings-note{margin-top:9px;color:#6f7584;font-size:8px;line-height:1.45;}
+
+/* =========================
    MOBILE
 ========================= */
 
@@ -1151,13 +1174,13 @@ button{
     }
     .main-panel{
         width:100%;
-        height:75%;
-        flex:0 0 75%;
+        height:45%;
+        flex:0 0 45%;
     }
     .chat-panel{
         width:100%;
-        height:25%;
-        flex:0 0 25%;
+        height:55%;
+        flex:0 0 55%;
         min-width:0;
         border-left:0;
         border-top:1px solid var(--border);
@@ -1186,6 +1209,14 @@ button{
     .media-area{padding:0;}
 }
 
+
+@media(max-width:700px){
+    .share-settings{
+        right:7px;
+        bottom:52px;
+        width:min(230px,calc(100vw - 14px));
+    }
+}
 
 /* =========================
    CHAT EMOJI / IMAGE UI
@@ -1503,24 +1534,8 @@ button{
 
                         <div class="media-controls" id="mediaControls">
 
-                            <button
-                                id="micBtn"
-                                class="control-btn active"
-                                onclick="toggleControl('micBtn','🎤','🔇');event.stopPropagation();showMediaControls()"
-                                title="Microphone"
-                            >🎤</button>
-
-                            <button
-                                id="cameraBtn"
-                                class="control-btn"
-                                onclick="toggleControl('cameraBtn','📹','🚫');event.stopPropagation();showMediaControls()"
-                                title="Camera"
-                            >📹</button>
-
-                            <button class="control-btn" onclick="togglePlay(event)" title="Play / Pause">▶</button>
-                            <button class="control-btn" onclick="toggleMediaMute(event)" title="Mute">🔊</button>
-                            <button class="control-btn" onclick="openWatchTogether(event)" title="Watch Together">🎬</button>
                             <button id="mediaShareBtn" class="control-btn" onclick="toggleScreenShare(event)" title="Screen Share">🖥️</button>
+                            <button class="control-btn" onclick="toggleShareSettings(event)" title="Screen Share Quality">⚙</button>
                             <button class="control-btn" onclick="togglePeople(event)" title="People">👥</button>
                             <button class="control-btn" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
                             <button class="control-btn" onclick="leaveRoom();event.stopPropagation()" title="Leave Room">☎</button>
@@ -1529,6 +1544,33 @@ button{
                                 TAP SCREEN TO SHOW CONTROLS
                             </span>
 
+                        </div>
+
+                        <div class="share-settings" id="shareSettings" onclick="event.stopPropagation()">
+                            <div class="share-settings-title">Screen Share</div>
+                            <label>
+                                <span>My share quality</span>
+                                <select id="hostQualitySelect" onchange="setHostShareQuality(this.value)">
+                                    <option value="source">Source / Original</option>
+                                    <option value="180">180p</option>
+                                    <option value="360">360p</option>
+                                    <option value="480">480p</option>
+                                    <option value="720" selected>720p</option>
+                                    <option value="1080">1080p</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Viewing quality</span>
+                                <select id="viewerQualitySelect" onchange="requestViewingQuality(this.value)">
+                                    <option value="source" selected>Auto / Source</option>
+                                    <option value="180">180p</option>
+                                    <option value="360">360p</option>
+                                    <option value="480">480p</option>
+                                    <option value="720">720p</option>
+                                    <option value="1080">1080p</option>
+                                </select>
+                            </label>
+                            <div class="share-settings-note">Audio: browser/system-share audio when supported. Use your device volume for loudness.</div>
                         </div>
 
                     </div>
@@ -1711,7 +1753,10 @@ function showMediaControls(){
     if(!card) return;
     card.classList.add("controls-visible");
     clearTimeout(controlsTimer);
-    controlsTimer = setTimeout(()=>card.classList.remove("controls-visible"),3000);
+    controlsTimer = setTimeout(()=>{
+        card.classList.remove("controls-visible");
+        document.getElementById("shareSettings")?.classList.remove("show");
+    },3000);
 }
 
 function toggleMediaControls(event){
@@ -1724,26 +1769,131 @@ function toggleMediaControls(event){
 
 function togglePlay(event){
     event?.stopPropagation();
-    showToast("Play / Pause");
     showMediaControls();
 }
 
 function toggleMediaMute(event){
     event?.stopPropagation();
-    showToast("Volume controls");
+    const video=document.getElementById("screenShareVideo");
+    if(video && !isScreenShareHost){
+        video.muted=!video.muted;
+        video.volume=video.muted?0:1;
+        video.play?.().catch(()=>{});
+        showToast(video.muted ? "Share audio muted" : "Share audio on");
+    }
     showMediaControls();
 }
 
 function openWatchTogether(event){
     event?.stopPropagation();
-    showToast("Watch Together opened 🎬");
     showMediaControls();
+}
+
+function enableRemoteShareAudio(){
+    const video=document.getElementById("screenShareVideo");
+    if(video && !isScreenShareHost){
+        video.muted=false;
+        video.volume=1;
+        video.play?.().catch(()=>{});
+    }
+}
+
+const SHARE_QUALITY_PRESETS={
+    source:{height:null,maxBitrate:12000000,maxFramerate:30},
+    180:{height:180,maxBitrate:350000,maxFramerate:20},
+    360:{height:360,maxBitrate:900000,maxFramerate:24},
+    480:{height:480,maxBitrate:1600000,maxFramerate:30},
+    720:{height:720,maxBitrate:3500000,maxFramerate:30},
+    1080:{height:1080,maxBitrate:8000000,maxFramerate:30}
+};
+
+function toggleShareSettings(event){
+    event?.stopPropagation();
+    const panel=document.getElementById("shareSettings");
+    if(!panel) return;
+    panel.classList.toggle("show");
+    showMediaControls();
+}
+
+function getVideoSenderForPeer(userId){
+    const pc=peerConnections[userId];
+    if(!pc) return null;
+    return pc.getSenders().find(sender=>sender.track && sender.track.kind==="video") || null;
+}
+
+async function applyQualityToPeer(userId,quality){
+    const sender=getVideoSenderForPeer(userId);
+    if(!sender) return;
+    const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
+    const params=sender.getParameters();
+    if(!params.encodings || !params.encodings.length) params.encodings=[{}];
+    const settings=screenShareStream?.getVideoTracks?.()[0]?.getSettings?.() || {};
+    let scale=1;
+    if(preset.height && settings.height && settings.height>preset.height){
+        scale=Math.max(1,settings.height/preset.height);
+    }
+    params.encodings=params.encodings.map(enc=>({
+        ...enc,
+        scaleResolutionDownBy:scale,
+        maxBitrate:preset.maxBitrate,
+        maxFramerate:preset.maxFramerate
+    }));
+    try{ await sender.setParameters(params); }catch(error){ console.warn("Video quality update failed",error); }
+
+    const pc=peerConnections[userId];
+    const audioSender=pc?.getSenders().find(s=>s.track && s.track.kind==="audio");
+    if(audioSender){
+        const audioParams=audioSender.getParameters();
+        if(!audioParams.encodings || !audioParams.encodings.length) audioParams.encodings=[{}];
+        audioParams.encodings=audioParams.encodings.map(enc=>({...enc,maxBitrate:128000}));
+        try{ await audioSender.setParameters(audioParams); }catch(error){ console.warn("Audio quality update failed",error); }
+    }
+}
+
+async function applyHostShareQuality(quality){
+    if(!screenShareStream) return;
+    const track=screenShareStream.getVideoTracks()[0];
+    const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
+    if(track && preset.height){
+        try{
+            const settings=track.getSettings?.()||{};
+            const aspect=settings.width&&settings.height ? settings.width/settings.height : 16/9;
+            const width=Math.round(preset.height*aspect);
+            await track.applyConstraints({width:{ideal:width},height:{ideal:preset.height},frameRate:{ideal:preset.maxFramerate,max:preset.maxFramerate}});
+        }catch(error){ console.warn("Capture quality constraint not applied",error); }
+    }
+    for(const member of roomMembers){
+        if(member.user_id!==sessionUserId) await applyQualityToPeer(member.user_id,quality);
+    }
+}
+
+async function setHostShareQuality(quality){
+    if(!isScreenShareHost){ showToast("Start screen sharing to set share quality"); return; }
+    await applyHostShareQuality(quality);
+    showToast(quality==="source"?"Sharing at source quality":"Sharing at "+quality+"p");
+    showMediaControls();
+}
+
+async function requestViewingQuality(quality){
+    const select=document.getElementById("viewerQualitySelect");
+    if(select) select.value=quality;
+    if(isScreenShareHost){
+        await setHostShareQuality(quality);
+        return;
+    }
+    const owner=screenShareOwnerId;
+    if(owner){
+        await broadcastSignal({type:"quality-request",from:sessionUserId,to:owner,quality});
+        showToast(quality==="source"?"Requested source quality":"Requested "+quality+"p");
+    }else{
+        showToast("No active screen share");
+    }
 }
 
 async function toggleScreenShare(event){
     event?.stopPropagation();
     if(screenShareStream){
-        stopScreenShare();
+        await stopScreenShare();
         return;
     }
     await startScreenShare();
@@ -1755,17 +1905,24 @@ async function startScreenShare(){
         return;
     }
     try{
-        screenShareStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+        screenShareStream = await navigator.mediaDevices.getDisplayMedia({
+            video:{frameRate:{ideal:30,max:30}},
+            audio:true
+        });
         const video = document.getElementById("screenShareVideo");
         const card = document.querySelector(".media-card");
         if(video){
             video.srcObject = screenShareStream;
+            video.muted = true;
+            video.volume = 0;
             video.play?.().catch(()=>{});
         }
         card?.classList.add("sharing");
         isScreenShareHost = true;
         screenShareOwnerId = sessionUserId;
         updateShareButton();
+        const hostQuality=document.getElementById("hostQualitySelect");
+        if(hostQuality) hostQuality.value="source";
         showMediaControls();
         showToast("Screen sharing started 🖥️");
         await broadcastSignal({type:"screen-share-start", from:sessionUserId});
@@ -1773,8 +1930,15 @@ async function startScreenShare(){
             if(member.user_id !== sessionUserId) await createOfferFor(member.user_id);
         }
         const track = screenShareStream.getVideoTracks()[0];
-        if(track) track.addEventListener("ended",stopScreenShare,{once:true});
+        if(track){
+            try{ track.contentHint="detail"; }catch{}
+            track.addEventListener("ended",stopScreenShare,{once:true});
+        }
+        if(!screenShareStream.getAudioTracks().length){
+            showToast("System audio was not included by your browser/share picker");
+        }
     }catch(error){
+        console.error(error);
         screenShareStream = null;
         isScreenShareHost = false;
         screenShareOwnerId = null;
@@ -1790,10 +1954,11 @@ async function stopScreenShare(){
     screenShareOwnerId = null;
     const video = document.getElementById("screenShareVideo");
     const card = document.querySelector(".media-card");
-    if(video) video.srcObject = null;
+    if(video){ video.srcObject = null; video.muted=true; video.volume=0; }
     if(card) card.classList.remove("sharing");
     Object.values(peerConnections).forEach(pc=>pc.close());
     peerConnections = {};
+    document.getElementById("shareSettings")?.classList.remove("show");
     updateShareButton();
     await broadcastSignal({type:"screen-share-stop", from:sessionUserId});
     showMediaControls();
@@ -1810,7 +1975,11 @@ function updateShareButton(){
 function initMediaArea(){
     const card = document.querySelector(".media-card");
     if(!card) return;
-    card.addEventListener("click",toggleMediaControls);
+    card.addEventListener("click",(event)=>{
+        if(event.target.closest(".media-controls") || event.target.closest(".share-settings")) return;
+        enableRemoteShareAudio();
+        showMediaControls();
+    });
 }
 
 /* =========================
@@ -2001,6 +2170,8 @@ function makePeer(userId){
         const video=document.getElementById("screenShareVideo");
         if(video){
             video.srcObject=e.streams[0];
+            video.muted=false;
+            video.volume=1;
             video.play?.().catch(()=>{});
             document.querySelector(".media-card")?.classList.add("sharing");
         }
@@ -2017,6 +2188,7 @@ function makePeer(userId){
 async function createOfferFor(userId){
     if(!screenShareStream || !isScreenShareHost || userId===sessionUserId) return;
     const pc=makePeer(userId);
+    await applyQualityToPeer(userId,"source");
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
     await broadcastSignal({type:"offer",from:sessionUserId,to:userId,description:pc.localDescription});
@@ -2039,6 +2211,12 @@ async function handleSignalMessage(msg){
         Object.values(peerConnections).forEach(pc=>pc.close());
         peerConnections={};
         screenShareOwnerId=null;
+        return;
+    }
+    if(signal.type==="quality-request") {
+        if(isScreenShareHost && signal.from && signal.to===sessionUserId) {
+            await applyQualityToPeer(signal.from,signal.quality||"source");
+        }
         return;
     }
     if(signal.type==="offer"){
@@ -2504,6 +2682,8 @@ async function enterRoom(roomName,code){
     await loadExistingMessages();
     await setupRoomRealtime();
     saveRecentRoom(currentRoomCode,roomName,roomOwnerId===sessionUserId);
+    const hostQuality=document.getElementById("hostQualitySelect");
+    if(hostQuality) hostQuality.disabled = roomOwnerId!==sessionUserId;
     addSystemMessage(currentUserName + " joined the room");
     await broadcastSystemJoin();
     showMediaControls();
