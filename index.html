@@ -1134,6 +1134,47 @@ button{
     }
 }
 
+
+/* =========================
+   CHAT EMOJI / IMAGE UI
+========================= */
+.chat-input-wrap{position:relative;}
+.emoji-picker{
+    position:absolute;
+    right:6px;
+    bottom:52px;
+    width:min(330px,calc(100vw - 24px));
+    max-height:300px;
+    overflow:auto;
+    padding:10px;
+    background:#0d0f18;
+    border:1px solid var(--border);
+    border-radius:14px;
+    box-shadow:0 16px 40px rgba(0,0,0,.45);
+    z-index:30;
+    display:none;
+}
+.emoji-picker.active{display:block;}
+.emoji-picker-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:#9da3b2;font-size:10px;font-weight:700;}
+.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;}
+.emoji-item{border:0;background:transparent;border-radius:8px;font-size:20px;aspect-ratio:1;cursor:pointer;}
+.emoji-item:hover{background:rgba(139,92,246,.12);}
+.custom-emoji-section{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);}
+.custom-emoji-title{display:flex;align-items:center;justify-content:space-between;color:#7f8594;font-size:9px;margin-bottom:6px;}
+.custom-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;}
+.custom-emoji-img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#080910;cursor:pointer;padding:2px;}
+.custom-emoji-upload{border:1px dashed #383c49;background:#11131d;color:#a9adba;border-radius:8px;cursor:pointer;font-size:9px;min-height:34px;padding:5px;}
+.chat-image-message{margin-top:5px;max-width:220px;max-height:180px;border-radius:10px;display:block;object-fit:cover;cursor:zoom-in;border:1px solid rgba(255,255,255,.08);}
+.image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
+.image-lightbox.active{display:flex;}
+.image-lightbox img{max-width:94vw;max-height:90vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.55);}
+.image-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border:0;border-radius:50%;background:rgba(20,22,30,.9);color:#fff;font-size:20px;cursor:pointer;}
+@media(max-width:700px){
+    .emoji-picker{right:0;bottom:48px;width:min(290px,calc(100vw - 16px));max-height:260px;}
+    .emoji-grid,.custom-emoji-grid{grid-template-columns:repeat(7,1fr);}
+    .chat-image-message{max-width:150px;max-height:130px;}
+}
+
 </style>
 </head>
 
@@ -1473,37 +1514,58 @@ button{
 
                 <div class="chat-input-area">
 
-                    <div class="chat-input">
+                    <div class="chat-input-wrap">
 
-                        <input
-                            id="chatInput"
-                            placeholder="Message the room..."
-                            onkeydown="handleChat(event)"
-                        >
+                        <div class="emoji-picker" id="emojiPicker">
+                            <div class="emoji-picker-head">
+                                <span>EMOJIS</span>
+                                <span>Tap to send • Upload custom</span>
+                            </div>
+                            <div class="emoji-grid" id="emojiGrid"></div>
+                            <div class="custom-emoji-section">
+                                <div class="custom-emoji-title">
+                                    <span>CUSTOM EMOJIS</span>
+                                    <label class="custom-emoji-upload">＋ Upload <input id="customEmojiInput" type="file" accept="image/*" hidden onchange="uploadCustomEmoji(event)"></label>
+                                </div>
+                                <div class="custom-emoji-grid" id="customEmojiGrid"></div>
+                            </div>
+                        </div>
 
-                        <button
-                            class="chat-action"
-                            title="GIF"
-                            onclick="sendGif()"
-                        >
-                            GIF
-                        </button>
+                        <div class="chat-input">
 
-                        <button
-                            class="chat-action"
-                            title="Emoji"
-                            onclick="addEmoji()"
-                        >
-                            😊
-                        </button>
+                            <input
+                                id="chatInput"
+                                placeholder="Message the room..."
+                                onkeydown="handleChat(event)"
+                            >
 
-                        <button
-                            class="chat-action"
-                            title="Send"
-                            onclick="sendMessage()"
-                        >
-                            ➤
-                        </button>
+                            <input id="chatImageInput" type="file" accept="image/*" hidden onchange="sendChatImage(event)">
+
+                            <button
+                                class="chat-action"
+                                title="Emoji & Custom Emoji"
+                                onclick="toggleEmojiPicker(event)"
+                            >
+                                😊
+                            </button>
+
+                            <button
+                                class="chat-action"
+                                title="Send picture"
+                                onclick="document.getElementById('chatImageInput').click()"
+                            >
+                                🖼️
+                            </button>
+
+                            <button
+                                class="chat-action"
+                                title="Send"
+                                onclick="sendMessage()"
+                            >
+                                ➤
+                            </button>
+
+                        </div>
 
                     </div>
 
@@ -1530,6 +1592,11 @@ button{
 
 </section>
 
+
+<div class="image-lightbox" id="imageLightbox" onclick="closeImageLightbox(event)">
+    <button class="image-lightbox-close" onclick="closeImageLightbox(event)">×</button>
+    <img id="lightboxImage" src="" alt="Chat image">
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -1751,6 +1818,9 @@ async function setupRoomRealtime(){
             if(msg.user_id === sessionUserId) return;
             if(msg.message_type === "text") appendRemoteMessage(msg);
             else if(msg.message_type === "gif") appendRemoteGif(msg);
+            else if(msg.message_type === "image") appendRemoteImage(msg);
+            else if(msg.message_type === "custom_emoji") loadCustomEmojiAsset(msg.message);
+            else if(msg.message_type === "emoji_image") appendRemoteEmoji(msg);
             else if(msg.message_type === "system") addSystemMessage(msg.message);
             else if(msg.message_type === "signal") handleSignalMessage(msg);
         })
@@ -1869,7 +1939,20 @@ function appendRemoteMessage(msg){
 }
 
 function appendRemoteGif(msg){
-    appendChatMessage(msg.user_name,"😂 GIF",true);
+    /* Kept only for old messages; new GIF sending is removed. */
+    appendChatMessage(msg.user_name,"GIF",true);
+}
+
+function appendRemoteImage(msg){
+    let data;
+    try{ data=JSON.parse(msg.message); }catch(e){ return; }
+    appendImageMessage(msg.user_name,data?.src);
+}
+
+function appendRemoteEmoji(msg){
+    let data;
+    try{ data=JSON.parse(msg.message); }catch(e){ return; }
+    appendEmojiMessage(msg.user_name,data?.src);
 }
 
 function appendChatMessage(name,text,isGif=false){
@@ -1877,10 +1960,255 @@ function appendChatMessage(name,text,isGif=false){
     clearChatEmpty();
     const message=document.createElement("div");
     message.className="message";
-    message.innerHTML=`<div class="avatar">${escapeHTML((name||"?").charAt(0).toUpperCase())}</div><div class="message-content"><div class="message-top"><span class="message-name">${escapeHTML(name||"Unknown")}</span><span class="message-time">now</span></div><div class="${isGif?"gif-message":"message-text"}">${escapeHTML(text)}</div></div>`;
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.textContent=(name||"?").charAt(0).toUpperCase();
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=name||"Unknown";
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    const body=document.createElement("div");
+    body.className=isGif?"gif-message":"message-text";
+    body.textContent=text;
+    content.append(top,body);
+    message.append(avatar,content);
     messages.appendChild(message);
     messages.scrollTop=messages.scrollHeight;
 }
+
+function appendImageMessage(name,src){
+    if(!src || !/^data:image\//i.test(src)) return;
+    const messages=document.getElementById("messages");
+    clearChatEmpty();
+    const message=document.createElement("div");
+    message.className="message";
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.textContent=(name||"?").charAt(0).toUpperCase();
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=name||"Unknown";
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    const img=document.createElement("img");
+    img.className="chat-image-message";
+    img.src=src;
+    img.alt="Chat image";
+    img.loading="lazy";
+    img.onclick=()=>openImageLightbox(src);
+    content.append(top,img);
+    message.append(avatar,content);
+    messages.appendChild(message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+const standardEmojis=[
+    "😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰",
+    "😘","😎","🤩","🥳","😏","😋","😛","🤗","🤔","🫡","🤭","🤫","😐","😑","😶","🙄",
+    "😴","🤤","😢","😭","😤","😡","🤬","😱","😳","🥺","😈","👻","💀","🤖","🔥","✨",
+    "❤️","🧡","💛","💚","💙","💜","🖤","🤍","💯","👍","👎","👏","🙌","🙏","🎉","🎊",
+    "💀","☠️","👀","💔","💖","💗","💥","⭐","🌟","🍿","🎬","🎮","🚀","💎","🏆","😂"
+];
+
+function toggleEmojiPicker(event){
+    event?.stopPropagation();
+    const picker=document.getElementById("emojiPicker");
+    if(!picker) return;
+    picker.classList.toggle("active");
+    if(picker.classList.contains("active")) renderEmojiPicker();
+}
+
+function renderEmojiPicker(){
+    const grid=document.getElementById("emojiGrid");
+    if(!grid) return;
+    grid.innerHTML="";
+    standardEmojis.forEach(emoji=>{
+        const btn=document.createElement("button");
+        btn.type="button";
+        btn.className="emoji-item";
+        btn.textContent=emoji;
+        btn.onclick=()=>sendEmoji(emoji);
+        grid.appendChild(btn);
+    });
+    renderCustomEmojis();
+}
+
+async function sendEmoji(emoji){
+    await sendChatPayload(emoji,"text");
+    document.getElementById("emojiPicker")?.classList.remove("active");
+}
+
+function renderCustomEmojis(){
+    const grid=document.getElementById("customEmojiGrid");
+    if(!grid) return;
+    grid.innerHTML="";
+    customEmojiAssets.forEach(asset=>{
+        const img=document.createElement("img");
+        img.className="custom-emoji-img";
+        img.src=asset.src;
+        img.alt=asset.name||"Custom emoji";
+        img.title=asset.name||"Custom emoji";
+        img.onclick=()=>sendCustomEmoji(asset.src);
+        grid.appendChild(img);
+    });
+}
+
+let customEmojiAssets=[];
+
+
+function appendEmojiMessage(name,src){
+    if(!src || !/^data:image\//i.test(src)) return;
+    const messages=document.getElementById("messages");
+    clearChatEmpty();
+    const message=document.createElement("div");
+    message.className="message";
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.textContent=(name||"?").charAt(0).toUpperCase();
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=name||"Unknown";
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    const img=document.createElement("img");
+    img.className="custom-emoji-img";
+    img.style.width="48px";
+    img.style.height="48px";
+    img.src=src;
+    img.alt="Custom emoji";
+    content.append(top,img);
+    message.append(avatar,content);
+    messages.appendChild(message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+async function sendCustomEmoji(src){
+    if(!currentRoomCode || !src) return;
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:JSON.stringify({src}),message_type:"emoji_image"
+    });
+    if(error){ console.error(error); showToast("Emoji failed to send"); return; }
+    appendEmojiMessage(currentUserName,src);
+    document.getElementById("emojiPicker")?.classList.remove("active");
+}
+function loadCustomEmojiAsset(raw){
+    let asset;
+    try{ asset=JSON.parse(raw); }catch(e){ return; }
+    if(!asset?.src || !/^data:image\//i.test(asset.src)) return;
+    if(customEmojiAssets.some(x=>x.id===asset.id)) return;
+    customEmojiAssets.push(asset);
+    renderCustomEmojis();
+}
+
+function fileToDataURL(file,maxSize,quality=.78){
+    return new Promise((resolve,reject)=>{
+        if(!file || !file.type.startsWith("image/")) return reject(new Error("Invalid image"));
+        const reader=new FileReader();
+        reader.onload=()=>{
+            const img=new Image();
+            img.onload=()=>{
+                const scale=Math.min(1,maxSize/Math.max(img.width,img.height));
+                const canvas=document.createElement("canvas");
+                canvas.width=Math.max(1,Math.round(img.width*scale));
+                canvas.height=Math.max(1,Math.round(img.height*scale));
+                const ctx=canvas.getContext("2d");
+                ctx.drawImage(img,0,0,canvas.width,canvas.height);
+                resolve(canvas.toDataURL("image/webp",quality));
+            };
+            img.onerror=reject;
+            img.src=reader.result;
+        };
+        reader.onerror=reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadCustomEmoji(event){
+    const file=event.target.files?.[0];
+    event.target.value="";
+    if(!file || !currentRoomCode) return;
+    try{
+        const src=await fileToDataURL(file,96,.72);
+        const asset={id:(crypto.randomUUID?crypto.randomUUID():Date.now()+""),name:file.name.replace(/\.[^.]+$/,""),src};
+        const {error}=await supabaseClient.from("room_messages").insert({
+            room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+            message:JSON.stringify(asset),message_type:"custom_emoji"
+        });
+        if(error) throw error;
+        loadCustomEmojiAsset(JSON.stringify(asset));
+        showToast("Custom emoji added ✓");
+    }catch(error){
+        console.error(error);
+        showToast("Custom emoji upload failed");
+    }
+}
+
+async function sendChatImage(event){
+    const file=event.target.files?.[0];
+    event.target.value="";
+    if(!file || !currentRoomCode) return;
+    try{
+        const src=await fileToDataURL(file,1200,.78);
+        const payload=JSON.stringify({src,name:file.name});
+        const {error}=await supabaseClient.from("room_messages").insert({
+            room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+            message:payload,message_type:"image"
+        });
+        if(error) throw error;
+        appendImageMessage(currentUserName,src);
+    }catch(error){
+        console.error(error);
+        showToast("Picture failed to send");
+    }
+}
+
+function openImageLightbox(src){
+    const box=document.getElementById("imageLightbox");
+    const img=document.getElementById("lightboxImage");
+    if(!box || !img) return;
+    img.src=src;
+    box.classList.add("active");
+}
+
+function closeImageLightbox(event){
+    if(event && event.target && event.target.id==="lightboxImage") return;
+    event?.stopPropagation();
+    const box=document.getElementById("imageLightbox");
+    const img=document.getElementById("lightboxImage");
+    box?.classList.remove("active");
+    if(img) img.src="";
+}
+
+function initChatExtras(){
+    const input=document.getElementById("chatInput");
+    document.addEventListener("click",event=>{
+        const picker=document.getElementById("emojiPicker");
+        if(picker && !event.target.closest(".chat-input-wrap")) picker.classList.remove("active");
+    });
+    renderEmojiPicker();
+}
+
+initChatExtras();
 
 function initMediaArea(){
     const card = document.querySelector(".media-card");
@@ -1992,7 +2320,10 @@ async function loadExistingMessages(){
     clearChatMessagesOnly();
     (data||[]).forEach(msg=>{
         if(msg.message_type==="text") appendChatMessage(msg.user_name,msg.message);
-        else if(msg.message_type==="gif") appendChatMessage(msg.user_name,"😂 GIF",true);
+        else if(msg.message_type==="gif") appendChatMessage(msg.user_name,"GIF",true);
+        else if(msg.message_type==="image") appendRemoteImage(msg);
+        else if(msg.message_type==="custom_emoji") loadCustomEmojiAsset(msg.message);
+        else if(msg.message_type==="emoji_image") appendRemoteEmoji(msg);
     });
 }
 
@@ -2051,39 +2382,27 @@ function handleChat(event){
     }
 }
 
+async function sendChatPayload(text,type="text"){
+    if(!currentRoomCode || !text) return false;
+    const {error}=await supabaseClient.from("room_messages").insert({
+        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
+        message:text,message_type:type
+    });
+    if(error){ console.error(error); showToast("Message failed to send"); return false; }
+    if(type==="text") appendChatMessage(currentUserName,text);
+    return true;
+}
+
 async function sendMessage(){
     const input=document.getElementById("chatInput");
     const text=input.value.trim();
     if(!text || !currentRoomCode) return;
     input.value="";
-    const {error}=await supabaseClient.from("room_messages").insert({
-        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
-        message:text,message_type:"text"
-    });
-    if(error){ console.error(error); showToast("Message failed to send"); return; }
-    appendChatMessage(currentUserName,text);
+    await sendChatPayload(text,"text");
 }
-
-
-async function sendGif(){
-    if(!currentRoomCode) return;
-    const {error}=await supabaseClient.from("room_messages").insert({
-        room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,
-        message:"😂 GIF",message_type:"gif"
-    });
-    if(error){ console.error(error); showToast("GIF failed to send"); return; }
-    appendChatMessage(currentUserName,"😂 GIF",true);
-    showToast("GIF sent ✨");
-}
-
 
 function addEmoji(){
-
-    const input = document.getElementById("chatInput");
-
-    input.value += " 😊";
-
-    input.focus();
+    toggleEmojiPicker();
 }
 
 function escapeHTML(text){
