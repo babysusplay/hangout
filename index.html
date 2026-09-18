@@ -1308,6 +1308,11 @@ button{
 .emoji-tab.active{background:#252735;color:#fff;}
 .emoji-panel{display:none;max-height:255px;overflow:auto;padding:2px;}
 .emoji-panel.active{display:block;}
+.emoji-source-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:3px;background:#080910;border-radius:8px;padding:3px;margin-bottom:8px;}
+.emoji-source-tab{border:0;background:transparent;color:#8f94a3;border-radius:6px;padding:7px 4px;font-size:9px;font-weight:700;cursor:pointer;}
+.emoji-source-tab.active{background:#252735;color:#fff;}
+.emoji-source-panel{display:none;}
+.emoji-source-panel.active{display:block;}
 .emoji-search-row{display:flex;gap:5px;margin-bottom:7px;}
 .emoji-search{flex:1;min-width:0;background:#080910;border:1px solid var(--border);border-radius:8px;color:#fff;padding:7px 9px;font-size:10px;outline:none;}
 .emoji-search-btn{border:0;background:#6d3df5;color:#fff;border-radius:8px;padding:0 10px;font-size:10px;font-weight:700;cursor:pointer;}
@@ -1338,8 +1343,8 @@ button{
 .image-lightbox img{max-width:94vw;max-height:90vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.55);}
 .image-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border:0;border-radius:50%;background:rgba(20,22,30,.9);color:#fff;font-size:20px;cursor:pointer;}
 @media(max-width:700px){
-    .emoji-picker{right:0;bottom:48px;width:min(300px,calc(100vw - 16px));max-height:285px;}
-    .emoji-panel{max-height:225px;}
+    .emoji-picker{left:0;right:0;bottom:calc(100% + 6px);width:100%;max-width:none;max-height:52dvh;border-radius:14px 14px 0 0;}
+    .emoji-panel{max-height:46dvh;}
     .emoji-grid,.custom-emoji-grid{grid-template-columns:repeat(7,1fr);}
     .custom-sticker-grid{grid-template-columns:repeat(4,1fr);}
     .gif-results{grid-template-columns:repeat(2,1fr);}
@@ -1712,14 +1717,23 @@ button{
                             </div>
 
                             <div class="emoji-panel active" id="emojiPanel">
-                                <div class="custom-emoji-title">
-                                    <span>EMOJI</span>
-                                    <label class="custom-emoji-upload">＋ Add <input id="customEmojiInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomEmoji(event)"></label>
+                                <div class="emoji-source-tabs">
+                                    <button class="emoji-source-tab active" data-source="website" onclick="switchEmojiSource('website',event)">Website Emoji</button>
+                                    <button class="emoji-source-tab" data-source="default" onclick="switchEmojiSource('default',event)">Default Emoji</button>
                                 </div>
-                                <div class="emoji-grid" id="emojiGrid"></div>
-                                <div class="custom-asset-section">
-                                    <div class="custom-emoji-title"><span>MY EMOJIS</span></div>
+
+                                <div class="emoji-source-panel active" id="websiteEmojiPanel">
+                                    <div class="custom-emoji-title">
+                                        <span>MY EMOJIS</span>
+                                        <label class="custom-emoji-upload">＋ Add <input id="customEmojiInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomEmoji(event)"></label>
+                                    </div>
                                     <div class="custom-emoji-grid" id="customEmojiGrid"></div>
+                                    <div class="gif-empty" id="websiteEmojiEmpty">No website emojis yet. Tap + Add to upload one.</div>
+                                </div>
+
+                                <div class="emoji-source-panel" id="defaultEmojiPanel">
+                                    <div class="custom-emoji-title"><span>DEFAULT EMOJI</span></div>
+                                    <div class="emoji-grid" id="emojiGrid"></div>
                                 </div>
                             </div>
 
@@ -2504,9 +2518,20 @@ const COMMON_EMOJIS = [
 function toggleEmojiPicker(event){
     event?.stopPropagation();
     const picker=document.getElementById("emojiPicker");
+    const input=document.getElementById("chatInput");
     if(!picker) return;
-    picker.classList.toggle("active");
-    if(picker.classList.contains("active")) renderEmojiPicker();
+    const opening=!picker.classList.contains("active");
+    if(opening){
+        // The emoji picker acts like a mobile keyboard replacement.
+        // Blur the text input first so the native keyboard closes.
+        if(input && document.activeElement===input) input.blur();
+        document.body.classList.remove("hangout-keyboard-open");
+        picker.classList.add("active");
+        switchEmojiSource("website");
+        renderEmojiPicker();
+    }else{
+        picker.classList.remove("active");
+    }
 }
 
 function switchEmojiTab(tab,event){
@@ -2515,13 +2540,25 @@ function switchEmojiTab(tab,event){
     document.querySelectorAll(".emoji-panel").forEach(panel=>panel.classList.remove("active"));
     const panel=document.getElementById(tab+"Panel");
     if(panel) panel.classList.add("active");
-    if(tab==="emoji") renderEmojiPicker();
+    if(tab==="emoji") switchEmojiSource("website");
+}
+
+function switchEmojiSource(source,event){
+    event?.stopPropagation();
+    document.querySelectorAll(".emoji-source-tab").forEach(btn=>btn.classList.toggle("active",btn.dataset.source===source));
+    document.querySelectorAll(".emoji-source-panel").forEach(panel=>panel.classList.remove("active"));
+    const panel=document.getElementById(source+"EmojiPanel");
+    if(panel) panel.classList.add("active");
+    if(source==="website") renderCustomEmojis();
+    if(source==="default") renderStandardEmojis();
 }
 
 function renderEmojiPicker(){
-    renderStandardEmojis();
+    // Website Emoji is intentionally the first/default source.
+    // Default system emojis only appear after the user explicitly selects that option.
     renderCustomEmojis();
     renderCustomStickers();
+    updateWebsiteEmojiEmpty();
 }
 
 function renderStandardEmojis(){
@@ -2544,7 +2581,8 @@ function sendTextEmoji(emoji){
     const start=input.selectionStart ?? input.value.length;
     const end=input.selectionEnd ?? input.value.length;
     input.value=input.value.slice(0,start)+emoji+input.value.slice(end);
-    input.focus();
+    // Do not reopen the native keyboard. The user can tap the message box
+    // whenever they want to switch back to typing.
     input.setSelectionRange(start+emoji.length,start+emoji.length);
 }
 
@@ -2573,6 +2611,12 @@ function renderCustomEmojis(){
         }
         grid.appendChild(card);
     });
+    updateWebsiteEmojiEmpty();
+}
+
+function updateWebsiteEmojiEmpty(){
+    const empty=document.getElementById("websiteEmojiEmpty");
+    if(empty) empty.style.display=customEmojiAssets.length ? "none" : "block";
 }
 
 function renderCustomStickers(){
@@ -2798,6 +2842,7 @@ function loadCustomEmojiAsset(raw){
     if(customEmojiAssets.some(x=>x.id===asset.id)) return;
     customEmojiAssets.push(asset);
     renderCustomEmojis();
+    updateWebsiteEmojiEmpty();
 }
 
 function fileToDataURL(file,maxSize,quality=.78){
@@ -2937,7 +2982,11 @@ function setupMobileKeyboardViewport(){
         },180);
     };
 
-    input.addEventListener("focus",openKeyboardMode);
+    input.addEventListener("focus",()=>{
+        // Tapping the message box switches from the emoji panel back to the native keyboard.
+        document.getElementById("emojiPicker")?.classList.remove("active");
+        openKeyboardMode();
+    });
     input.addEventListener("blur",closeKeyboardMode);
     if(window.visualViewport){
         visualViewport.addEventListener("resize",positionInputAboveKeyboard);
