@@ -557,109 +557,29 @@ button{
    MEDIA CONTROLS
 ========================= */
 
-let screenShareStream = null;
-let controlsTimer = null;
-
-function showMediaControls(){
-    const card = document.querySelector('.media-card');
-    if(!card) return;
-    card.classList.add('controls-visible');
-    clearTimeout(controlsTimer);
-    controlsTimer = setTimeout(() => card.classList.remove('controls-visible'), 2800);
+.media-card{
+    cursor:pointer;
 }
 
-function toggleMediaControls(event){
-    if(event && event.target.closest('.media-controls')){
-        showMediaControls();
-        return;
-    }
-    const card = document.querySelector('.media-card');
-    if(!card) return;
-    if(card.classList.contains('controls-visible')){
-        card.classList.remove('controls-visible');
-        clearTimeout(controlsTimer);
-    }else{
-        showMediaControls();
-    }
+.media-card .media-controls{
+    opacity:0;
+    visibility:hidden;
+    transform:translateY(8px);
+    pointer-events:none;
+    transition:opacity .2s ease,transform .2s ease,visibility .2s ease;
+    z-index:10;
 }
 
-function togglePlay(event){
-    event?.stopPropagation();
-    showToast('Watch Together player ready');
-    showMediaControls();
+.media-card.controls-visible .media-controls{
+    opacity:1;
+    visibility:visible;
+    transform:translateY(0);
+    pointer-events:auto;
 }
 
-function toggleMediaMute(event){
-    event?.stopPropagation();
-    showToast('Volume control ready');
-    showMediaControls();
-}
-
-function openWatchTogether(event){
-    event?.stopPropagation();
-    showToast('Watch Together opened 🎬');
-    showMediaControls();
-}
-
-async function toggleScreenShare(event){
-    event?.stopPropagation();
-    if(screenShareStream){
-        stopScreenShare();
-        return;
-    }
-    await startScreenShare();
-}
-
-async function startScreenShare(){
-
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-        showToast('Screen sharing is not supported here');
-        return;
-    }
-
-    try{
-        screenShareStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
-        const video = document.getElementById('screenShareVideo');
-        const card = document.querySelector('.media-card');
-        video.srcObject = screenShareStream;
-        card.classList.add('sharing');
-        showMediaControls();
-        updateShareButton();
-        showToast('Screen sharing started 🖥️');
-
-        const track = screenShareStream.getVideoTracks()[0];
-        if(track){
-            track.addEventListener('ended', stopScreenShare);
-        }
-    }catch(error){
-        screenShareStream = null;
-        showToast('Screen sharing cancelled');
-    }
-}
-
-function stopScreenShare(){
-    if(screenShareStream){
-        screenShareStream.getTracks().forEach(track => track.stop());
-    }
-    screenShareStream = null;
-    const video = document.getElementById('screenShareVideo');
-    const card = document.querySelector('.media-card');
-    if(video) video.srcObject = null;
-    if(card) card.classList.remove('sharing');
-    updateShareButton();
-    showToast('Screen sharing stopped');
-}
-
-function updateShareButton(){
-    const btn = document.getElementById('mediaShareBtn');
-    if(!btn) return;
-    btn.textContent = screenShareStream ? '⏹️' : '🖥️';
-    btn.title = screenShareStream ? 'Stop Sharing' : 'Screen Share';
-}
-
-function initMediaArea(){
-    const card = document.querySelector('.media-card');
-    if(card) card.addEventListener('click', toggleMediaControls);
+/* Keep the existing HTML, but don't show a permanent bottom control bar. */
+.bottom-controls{
+    display:none;
 }
 
 
@@ -1336,31 +1256,29 @@ function initMediaArea(){
 
                         </div>
 
-                        <div class="media-controls">
+                        <div class="media-controls" id="mediaControls">
 
                             <button
                                 id="micBtn"
                                 class="control-btn active"
-                                onclick="toggleControl('micBtn','🎤','🔇');event.stopPropagation()"
+                                onclick="toggleControl('micBtn','🎤','🔇');event.stopPropagation();showMediaControls()"
                                 title="Microphone"
                             >🎤</button>
 
                             <button
                                 id="cameraBtn"
                                 class="control-btn"
-                                onclick="toggleControl('cameraBtn','📹','🚫');event.stopPropagation()"
+                                onclick="toggleControl('cameraBtn','📹','🚫');event.stopPropagation();showMediaControls()"
                                 title="Camera"
                             >📹</button>
 
                             <button class="control-btn" onclick="togglePlay(event)" title="Play / Pause">▶</button>
-
                             <button class="control-btn" onclick="toggleMediaMute(event)" title="Mute">🔊</button>
-
                             <button class="control-btn" onclick="openWatchTogether(event)" title="Watch Together">🎬</button>
-
                             <button id="mediaShareBtn" class="control-btn" onclick="toggleScreenShare(event)" title="Screen Share">🖥️</button>
-
+                            <button class="control-btn" onclick="togglePeople(event)" title="People">👥</button>
                             <button class="control-btn" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
+                            <button class="control-btn" onclick="leaveRoom();event.stopPropagation()" title="Leave Room">☎</button>
 
                             <span class="media-label">
                                 TAP SCREEN TO SHOW CONTROLS
@@ -1483,6 +1401,112 @@ function initMediaArea(){
 
 let currentRoomCode = "";
 let currentUserName = "You";
+let screenShareStream = null;
+let controlsTimer = null;
+
+
+/* =========================
+   MEDIA CONTROLS
+========================= */
+
+function showMediaControls(){
+    const card = document.querySelector(".media-card");
+    if(!card) return;
+    card.classList.add("controls-visible");
+    clearTimeout(controlsTimer);
+    controlsTimer = setTimeout(()=>card.classList.remove("controls-visible"),3000);
+}
+
+function toggleMediaControls(event){
+    if(event && event.target.closest(".media-controls")){
+        showMediaControls();
+        return;
+    }
+    showMediaControls();
+}
+
+function togglePlay(event){
+    event?.stopPropagation();
+    showToast("Play / Pause");
+    showMediaControls();
+}
+
+function toggleMediaMute(event){
+    event?.stopPropagation();
+    showToast("Volume controls");
+    showMediaControls();
+}
+
+function openWatchTogether(event){
+    event?.stopPropagation();
+    showToast("Watch Together opened 🎬");
+    showMediaControls();
+}
+
+async function toggleScreenShare(event){
+    event?.stopPropagation();
+    if(screenShareStream){
+        stopScreenShare();
+        return;
+    }
+    await startScreenShare();
+}
+
+async function startScreenShare(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+        showToast("Screen sharing is not supported here");
+        return;
+    }
+    try{
+        screenShareStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+        const video = document.getElementById("screenShareVideo");
+        const card = document.querySelector(".media-card");
+        if(video){
+            video.srcObject = screenShareStream;
+            video.play?.().catch(()=>{});
+        }
+        card?.classList.add("sharing");
+        updateShareButton();
+        showMediaControls();
+        showToast("Screen sharing started 🖥️");
+        const track = screenShareStream.getVideoTracks()[0];
+        if(track) track.addEventListener("ended",stopScreenShare,{once:true});
+    }catch(error){
+        screenShareStream = null;
+        updateShareButton();
+        showToast("Screen sharing cancelled");
+    }
+}
+
+function stopScreenShare(){
+    if(screenShareStream) screenShareStream.getTracks().forEach(track=>track.stop());
+    screenShareStream = null;
+    const video = document.getElementById("screenShareVideo");
+    const card = document.querySelector(".media-card");
+    if(video) video.srcObject = null;
+    if(card) card.classList.remove("sharing");
+    updateShareButton();
+    showMediaControls();
+    showToast("Screen sharing stopped");
+}
+
+function updateShareButton(){
+    const btn = document.getElementById("mediaShareBtn");
+    if(!btn) return;
+    btn.textContent = screenShareStream ? "⏹️" : "🖥️";
+    btn.title = screenShareStream ? "Stop Sharing" : "Screen Share";
+}
+
+function initMediaArea(){
+    const card = document.querySelector(".media-card");
+    if(!card) return;
+    card.addEventListener("click",toggleMediaControls);
+    card.addEventListener("touchstart",toggleMediaControls,{passive:true});
+}
+
+
+
+initMediaArea();
 
 
 /* =========================
@@ -1571,6 +1595,9 @@ function enterRoom(roomName,code){
 }
 
 function leaveRoom(){
+
+    if(screenShareStream) stopScreenShare();
+    clearTimeout(controlsTimer);
 
     document.getElementById("room").style.display = "none";
     document.getElementById("landing").style.display = "block";
