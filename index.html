@@ -4413,7 +4413,9 @@ loadLocalProfile();
     discoveryTimer:null,
     statsTimer:null,
     lastSignalId:0,
-    retrying:new Set()
+    retrying:new Set(),
+    remoteSessionId:null,
+    invalidSessions:new Set()
   };
 
   const video=()=>document.getElementById("screenShareVideo");
@@ -4692,6 +4694,12 @@ loadLocalProfile();
 
   async function receiveOffer(data){
     if(S.host||data.to!==sessionUserId||!data.sdp)return;
+    /* A room keeps old signaling rows. After Stop -> Start, an old offer can
+       arrive late and replace the fresh peer with a dead negotiation. Every
+       share session is therefore isolated, and sessions explicitly stopped
+       on this viewer are never accepted again. */
+    if(data.session&&S.invalidSessions.has(data.session))return;
+    if(data.session&&S.remoteSessionId&&data.session!==S.remoteSessionId)return;
     if(data.session)S.remoteSessionId=data.session;
     closePeer(data.from);
     const pc=rtc();
@@ -4731,7 +4739,9 @@ loadLocalProfile();
 
   async function receiveAnswer(data){
     if(!S.host||data.to!==sessionUserId||!data.sdp)return;
-    if(data.session&&data.session!==shareSessionId)return;
+    /* Answers must belong to the currently active share. Do not accept
+       legacy/old answers after a Stop -> Start cycle. */
+    if(!shareSessionId||data.session!==shareSessionId)return;
     const pc=S.peers.get(data.from);
     if(!pc||pc.signalingState!=="have-local-offer")return;
     try{await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));}
@@ -4749,6 +4759,11 @@ loadLocalProfile();
     if(data.type==="answer"){await receiveAnswer(data);return;}
     if(data.type==="stop"){
       if(!S.host){
+        /* Remember the exact session that was stopped. The stop row is
+           inserted before the next share's offer, so any delayed old offer
+           is rejected even if it is still in the database poll queue. */
+        if(data.session)S.invalidSessions.add(data.session);
+        if(!data.session || data.session===S.remoteSessionId)S.remoteSessionId=null;
         closeAll();
         const v=video(),a=audio();
         if(v){v.pause();v.srcObject=null;}
@@ -4876,7 +4891,7 @@ loadLocalProfile();
   const watcher=setInterval(()=>{
     if(!currentRoomCode){
       if(S.room){
-        S.room=null;S.ready=false;S.lastSignalId=0;
+        S.room=null;S.ready=false;S.lastSignalId=0;S.remoteSessionId=null;S.invalidSessions.clear();
         if(S.pollTimer){clearInterval(S.pollTimer);S.pollTimer=null;}
         closeAll();
       }
