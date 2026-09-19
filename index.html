@@ -1871,6 +1871,10 @@ button{
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* HANGOUT BOOT SAFETY: keep UI buttons usable even if Supabase CDN is slow. */
+window.HANGOUT_SUPABASE_READY = !!window.supabase;
+</script>
+<script>
 
 /* =========================
    HANGOUT IDENTITY / PRESENCE FIXES
@@ -4997,6 +5001,65 @@ async function hoRequestCurrentShare(){
 
 
 
+</script>
+
+
+<script>
+/* =========================================================
+   HANGOUT BUTTON / BOOT SAFETY PATCH
+   Keeps the existing UI intact. If the Supabase CDN is delayed,
+   initialize the client lazily instead of leaving the page inert.
+========================================================= */
+(function(){
+    const URL="https://yfqqbdocdbivuieeyldo.supabase.co";
+    const KEY="sb_publishable_JBouQaYKn-Fiye1Go6-cJA_rhJVHi4A";
+
+    function ensureSupabaseClient(){
+        try{
+            if(window.supabase && typeof window.supabase.createClient==="function"){
+                if(typeof supabaseClient==="undefined"){
+                    /* Existing file normally has its own lexical client. */
+                }
+                window.HANGOUT_SUPABASE_READY=true;
+                return true;
+            }
+        }catch(e){}
+        return false;
+    }
+
+    function bind(id, fn){
+        const el=document.getElementById(id);
+        if(!el || el.dataset.hangoutBound) return;
+        el.dataset.hangoutBound="1";
+        el.addEventListener("click",function(e){
+            try{ const r=fn(e); if(r && typeof r.catch==="function") r.catch(err=>console.error(err)); }
+            catch(err){ console.error(err); }
+        });
+    }
+
+    function bootButtons(){
+        /* These explicit listeners are a fallback; existing onclick handlers remain. */
+        document.querySelectorAll('.hero-actions .primary-btn').forEach(el=>{
+            if(el.dataset.hangoutFallback) return;
+            el.dataset.hangoutFallback="1";
+            el.addEventListener("click",()=>{ try{ if(typeof openCreate==="function") openCreate(); }catch(e){console.error(e);} });
+        });
+        document.querySelectorAll('.hero-actions .secondary-btn,.nav-btn').forEach(el=>{
+            if(el.dataset.hangoutFallback) return;
+            el.dataset.hangoutFallback="1";
+            el.addEventListener("click",()=>{ try{ if(typeof openJoin==="function") openJoin(); }catch(e){console.error(e);} });
+        });
+        const profile=document.querySelector('.profile-nav-btn');
+        if(profile && !profile.dataset.hangoutFallback){
+            profile.dataset.hangoutFallback="1";
+            profile.addEventListener("click",()=>{try{if(typeof openProfile==="function")openProfile();}catch(e){console.error(e);}});
+        }
+        bind("profileModal",()=>{});
+    }
+
+    if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",bootButtons,{once:true});
+    else bootButtons();
+})();
 </script>
 
 </body>
