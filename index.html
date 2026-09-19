@@ -4826,6 +4826,7 @@ loadLocalProfile();
     clearInterval(S.discoveryTimer);S.discoveryTimer=null;
     for(const pc of S.peers.values())clearInterval(pc.__hangoutStatsTimer);
     const active=!!S.stream;
+    const stoppedSession=shareSessionId;
     if(S.stream)S.stream.getTracks().forEach(t=>{try{t.stop();}catch{}});
     S.stream=null;S.host=false;screenShareStream=null;isScreenShareHost=false;
     if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=null;
@@ -4835,7 +4836,7 @@ loadLocalProfile();
     if(v){v.pause();v.srcObject=null;}
     if(a){a.pause();a.srcObject=null;}
     ui(false);
-    if(active&&S.ready)await send({type:"stop",from:sessionUserId,session:shareSessionId});
+    if(active&&S.ready)await send({type:"stop",from:sessionUserId,session:stoppedSession});
     if(active)showToast("Screen sharing stopped");
   }
 
