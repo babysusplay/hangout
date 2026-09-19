@@ -5619,53 +5619,90 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     });
   }
 
+  let lastSignalId=0;
+  let signalPollTimer=null;
+
   async function send(payload){
-    if(!S.channel || !S.subscribed)return false;
+    if(!currentRoomCode)return false;
     try{
-      const result=await S.channel.send({
-        type:"broadcast",
-        event:"screen-share-signal",
-        payload
-      });
-      if(result && result!=="ok" && result?.status==="error"){
-        console.warn("Screen-share broadcast result:",result);
+      const row={
+        room_code:currentRoomCode,
+        user_id:sessionUserId,
+        user_name:currentUserName||"User",
+        message:JSON.stringify(payload),
+        message_type:"signal"
+      };
+      const {error}=await supabaseClient.from("room_messages").insert(row);
+      if(error){
+        console.error("Screen-share DB signaling failed:",error);
+        return false;
       }
       return true;
     }catch(e){
-      console.error("Screen-share signaling send failed:",e);
+      console.error("Screen-share signaling exception:",e);
       return false;
+    }
+  }
+
+  async function pollSignals(){
+    if(!currentRoomCode)return;
+    try{
+      const {data,error}=await supabaseClient
+        .from("room_messages")
+        .select("id,message,user_id")
+        .eq("room_code",currentRoomCode)
+        .eq("message_type","signal")
+        .gt("id",lastSignalId)
+        .order("id",{ascending:true})
+        .limit(50);
+
+      if(error){
+        console.warn("Screen-share signal poll failed:",error);
+        return;
+      }
+
+      for(const row of (data||[])){
+        const id=Number(row.id)||0;
+        if(id>lastSignalId)lastSignalId=id;
+        if(row.user_id===sessionUserId)continue;
+        try{
+          const payload=JSON.parse(row.message);
+          await receive(payload);
+        }catch(e){
+          console.warn("Invalid screen-share signal:",e);
+        }
+      }
+    }catch(e){
+      console.warn("Screen-share poll exception:",e);
     }
   }
 
   async function connect(){
     if(!currentRoomCode || !supabaseClient)return;
-    if(S.channel && S.room===currentRoomCode && S.subscribed)return;
-
-    if(S.channel){
-      try{await supabaseClient.removeChannel(S.channel);}catch{}
-    }
+    if(S.room===currentRoomCode && S.subscribed)return;
 
     S.room=currentRoomCode;
     S.subscribed=false;
 
-    const channel=supabaseClient.channel("screen-share-"+currentRoomCode,{
-      config:{broadcast:{self:false,ack:true}}
-    });
-    S.channel=channel;
+    try{
+      const {data,error}=await supabaseClient
+        .from("room_messages")
+        .select("id")
+        .eq("room_code",currentRoomCode)
+        .eq("message_type","signal")
+        .order("id",{ascending:false})
+        .limit(1);
 
-    channel
-      .on("broadcast",{event:"screen-share-signal"},async(msg)=>{
-        try{await receive(msg?.payload || {});}
-        catch(e){console.error("Screen-share signal handling failed:",e);}
-      })
-      .subscribe((status,err)=>{
-        console.log("Screen-share channel:",status,err||"");
-        if(status==="SUBSCRIBED"){
-          S.subscribed=true;
-          if(S.host && S.stream) announce();
-          else requestHost();
-        }
-      });
+      if(!error && data?.[0]?.id) lastSignalId=Number(data[0].id);
+    }catch{}
+
+    S.subscribed=true;
+
+    if(signalPollTimer)clearInterval(signalPollTimer);
+    await pollSignals();
+    signalPollTimer=setInterval(pollSignals,700);
+
+    if(!S.host)await requestHost();
   }
 
   async function requestHost(){
@@ -5674,8 +5711,9 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
   }
 
   async function announce(){
-    if(!S.subscribed || !S.host || !S.stream)return;
-    await send({type:"active",from:sessionUserId});
+    /* DB polling means viewers explicitly request an offer; no broadcast
+       announcement is needed. */
+    return;
   }
 
   async function createOffer(viewerId){
@@ -5979,7 +6017,7 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     if(oldSetup)await oldSetup();
     await connect();
     if(!S.host){
-      [500,1500,3500,7000].forEach(ms=>setTimeout(requestHost,ms));
+      [500,2000,5000].forEach(ms=>setTimeout(requestHost,ms));
     }
   };
 
@@ -6003,13 +6041,13 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
       if(S.room){
         S.room=null;
         S.subscribed=false;
+        lastSignalId=0;
       }
+      if(signalPollTimer){clearInterval(signalPollTimer);signalPollTimer=null;}
       return;
     }
-    if(!S.channel || S.room!==currentRoomCode || !S.subscribed){
-      connect().catch(e=>console.warn("Screen-share channel init:",e));
-    }else if(!S.host){
-      requestHost().catch(()=>{});
+    if(S.room!==currentRoomCode || !S.subscribed){
+      connect().catch(e=>console.warn("Screen-share signaling init:",e));
     }
   },1500);
 
