@@ -5001,6 +5001,100 @@ async function hoRequestCurrentShare(){
 
 
 
+/* =========================================================
+   HANGOUT SCREEN-SHARE LATE-JOIN RECOVERY
+   Keep a small live-state heartbeat so phones that join after
+   screen sharing started can discover the active host and get a
+   fresh SDP offer. This is intentionally separate from chat DB rows.
+========================================================= */
+let hoShareRecoveryTimer=null;
+let hoShareRecoveryBusy=false;
+
+function hoStopShareRecovery(){
+    if(hoShareRecoveryTimer){
+        clearInterval(hoShareRecoveryTimer);
+        hoShareRecoveryTimer=null;
+    }
+    hoShareRecoveryBusy=false;
+}
+
+async function hoShareRecoveryTick(){
+    if(!currentRoomCode || !isScreenShareHost || !screenShareStream || !hoRoomChannelReady) return;
+    if(hoShareRecoveryBusy) return;
+    hoShareRecoveryBusy=true;
+    try{
+        await hoSendSignal({
+            type:"screen-share-state",
+            from:sessionUserId,
+            to:"room",
+            active:true
+        });
+
+        await loadMembers();
+        for(const member of roomMembers||[]){
+            if(member.user_id===sessionUserId) continue;
+            const pc=peerConnections[member.user_id];
+            const state=pc?.connectionState;
+            if(!pc || state==="failed" || state==="closed" || state==="disconnected"){
+                await hoCreateOfferFor(member.user_id);
+            }
+        }
+    }catch(e){
+        console.warn("Screen-share recovery tick failed",e);
+    }finally{
+        hoShareRecoveryBusy=false;
+    }
+}
+
+function hoStartShareRecovery(){
+    hoStopShareRecovery();
+    if(!isScreenShareHost || !screenShareStream) return;
+    hoShareRecoveryTick();
+    hoShareRecoveryTimer=setInterval(hoShareRecoveryTick,1800);
+}
+
+/* Handle the heartbeat on viewers before the normal signal handler. */
+const _hoHandleSignalBeforeRecovery=hoHandleSignal;
+hoHandleSignal=async function(signal){
+    if(signal?.type==="screen-share-state" && signal.from!==sessionUserId){
+        if(!currentRoomCode || isScreenShareHost) return;
+        screenShareOwnerId=signal.from;
+        document.querySelector(".media-card")?.classList.add("sharing");
+        const video=document.getElementById("screenShareVideo");
+        if(video){
+            video.style.display="block";
+            video.autoplay=true;
+            video.playsInline=true;
+        }
+        /* Ask the active host for a fresh offer every time we see the state. */
+        await hoSendSignal({
+            type:"screen-share-request",
+            from:sessionUserId,
+            to:signal.from
+        });
+        return;
+    }
+    return _hoHandleSignalBeforeRecovery(signal);
+};
+
+/* Wrap the currently working start/stop functions so the recovery loop
+   starts only after capture succeeds and stops immediately when sharing ends. */
+const _hoStartScreenShareBeforeRecovery=startScreenShare;
+startScreenShare=async function(){
+    await _hoStartScreenShareBeforeRecovery();
+    if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
+};
+
+const _hoStopScreenShareBeforeRecovery=stopScreenShare;
+stopScreenShare=async function(){
+    hoStopShareRecovery();
+    await _hoStopScreenShareBeforeRecovery();
+};
+
+/* Also start recovery if a host is already sharing when this block runs. */
+if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
+
+
 </script>
 
 </body>
