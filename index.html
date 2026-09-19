@@ -4627,7 +4627,9 @@ loadLocalProfile();
         /* Mobile browsers can omit framesDecoded entirely. Never treat an
            unsupported metric as "zero frames", and give slow ICE/decoder
            startup much more time before rebuilding a healthy peer. */
-        if(age<10000)return;
+        /* Do not rebuild a freshly negotiated mobile peer too quickly.
+           Some mobile decoders expose RTP bytes before frame metrics settle. */
+        if(age<30000)return;
         const gotBytes=bytes>pc.__hangoutStatStart.bytes;
         const hasFrameMetric=Number.isFinite(Number(inbound?.framesDecoded));
         const gotFrames=hasFrameMetric
@@ -4796,6 +4798,8 @@ loadLocalProfile();
       const vt=stream.getVideoTracks()[0];
       if(!vt)throw new Error("No video track");
 
+      S.retrying.clear();
+      S.remoteSessionId=null;
       S.stream=stream;S.host=true;shareSessionId=(crypto.randomUUID?.()||("share-"+Date.now()+"-"+Math.random().toString(36).slice(2)));
       screenShareStream=stream;isScreenShareHost=true;
       if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=sessionUserId;
@@ -4846,6 +4850,8 @@ loadLocalProfile();
     for(const pc of S.peers.values())clearInterval(pc.__hangoutStatsTimer);
     const active=!!S.stream;
     const stoppedSession=shareSessionId;
+    /* Give the remote side a clean stop boundary before the next start. */
+    S.lastRestartAt=Date.now();
     if(S.stream)S.stream.getTracks().forEach(t=>{try{t.stop();}catch{}});
     S.stream=null;S.host=false;screenShareStream=null;isScreenShareHost=false;
     if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=null;
