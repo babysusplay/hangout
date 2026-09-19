@@ -1869,7 +1869,8 @@ button{
 <div class="toast" id="toast"></div>
 
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
 
 /* =========================
    HANGOUT IDENTITY / PRESENCE FIXES
@@ -2170,7 +2171,6 @@ async function leaveRoom(){
 
 window.addEventListener("pagehide",removePresenceOnExit);
 window.addEventListener("beforeunload",removePresenceOnExit);
-loadLocalProfile();
 
 </script>
 <script>
@@ -3656,6 +3656,8 @@ if(urlRoom){
     },300);
 
 }
+
+if(typeof loadLocalProfile === "function") loadLocalProfile();
 
 </script>
 
