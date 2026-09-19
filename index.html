@@ -1886,7 +1886,7 @@ let screenShareStream = null;
 let controlsTimer = null;
 let roomOwnerId = null;
 const DEVICE_USER_KEY = "hangout_device_user_id_v1";
-const RECENT_ROOMS_KEY = "hangout_recent_rooms_v1";
+const RECENT_ROOMS_KEY = "hangout_recent_rooms_v2";
 const sessionUserId = localStorage.getItem(DEVICE_USER_KEY) || ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "u_" + Date.now() + "_" + Math.random().toString(36).slice(2));
 localStorage.setItem(DEVICE_USER_KEY, sessionUserId);
 
@@ -4879,6 +4879,70 @@ loadLocalProfile();
   },1200);
 
   if(typeof currentRoomCode!=="undefined"&&currentRoomCode)connect().catch(()=>{});
+})();
+</script>
+<script>
+(function(){
+  let watchPollTimer=null, watchLastId=0, watchApplying=false, watchControllerId=null, watchActive=false;
+  function wVideo(){return document.getElementById("watchPartyVideo");}
+  function ensureWatchUI(){
+    const card=document.querySelector(".media-card"); if(!card||document.getElementById("watchPartyVideo"))return;
+    const style=document.createElement("style"); style.id="watch-party-style";
+    style.textContent="#watchPartyVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#05060a;z-index:3;display:none}.media-card.watch-active #watchPartyVideo{display:block}.media-card.watch-active #screenShareVideo{display:none}.watch-party-badge{position:absolute;top:14px;left:14px;z-index:6;padding:6px 9px;border-radius:999px;background:rgba(139,92,246,.9);color:#fff;font-size:10px;font-weight:700;letter-spacing:.05em;display:none}.media-card.watch-active .watch-party-badge{display:block}.watch-modal-actions{display:flex;gap:8px;margin-top:10px}.watch-modal-actions button{flex:1}.watch-help{font-size:9px;line-height:1.5;color:#777d8d;margin-top:9px}.watch-url{width:100%;background:#0a0c12;border:1px solid var(--border);outline:none;color:#fff;border-radius:11px;padding:12px 13px}";
+    const v=document.createElement("video"); v.id="watchPartyVideo"; v.playsInline=true; v.setAttribute("playsinline",""); v.preload="metadata"; v.controls=true; card.appendChild(v);
+    const badge=document.createElement("span"); badge.className="watch-party-badge"; badge.textContent="● WATCH PARTY"; card.appendChild(badge);
+    const controls=document.getElementById("mediaControls");
+    if(controls){const b=document.createElement("button");b.className="control-btn";b.type="button";b.textContent="🎬";b.title="Watch Video Together";b.onclick=e=>{e.stopPropagation();openWatchPartyModal()};controls.insertBefore(b,controls.firstChild);}
+    const modal=document.createElement("div"); modal.className="modal-backdrop"; modal.id="watchPartyModal";
+    modal.innerHTML='<div class="modal"><div class="modal-header"><h2>Watch Together</h2><button class="close" type="button" id="watchCloseBtn">×</button></div><div class="input-group"><label>Direct video URL</label><input id="watchVideoUrl" class="watch-url" placeholder="https://example.com/movie.mp4"></div><div class="watch-help">Use a direct MP4/WebM video link that the browser can play. YouTube/Netflix page links are not direct video files. Everyone in the room will use the same playback position.</div><div class="watch-modal-actions"><button class="secondary-btn" type="button" id="watchStopBtn">Stop</button><button class="primary-btn" type="button" id="watchStartBtn">Start Watching</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById("watchCloseBtn").onclick=()=>modal.classList.remove("active");
+    document.getElementById("watchStartBtn").onclick=startWatchFromModal;
+    document.getElementById("watchStopBtn").onclick=stopWatchParty;
+    v.addEventListener("play",()=>{if(!watchApplying)publishWatchState("play")});
+    v.addEventListener("pause",()=>{if(!watchApplying&&!v.ended)publishWatchState("pause")});
+    v.addEventListener("seeked",()=>{if(!watchApplying)publishWatchState("seek")});
+  }
+  function setWatchUI(active){watchActive=!!active;const card=document.querySelector(".media-card");if(card)card.classList.toggle("watch-active",watchActive);if(watchActive)showMediaControls();const v=wVideo();if(v&&!watchActive){v.pause();v.removeAttribute("src");v.load()}}
+  async function publishWatchState(action){
+    if(!currentRoomCode||!watchActive||watchApplying)return; const v=wVideo();if(!v||!v.src)return;
+    const payload={action,url:v.currentSrc||v.src,time:Number(v.currentTime||0),playing:!v.paused&&!v.ended,controller:watchControllerId||sessionUserId,ts:Date.now()};
+    try{await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName||"User",message:JSON.stringify(payload),message_type:"watch_state"})}catch(e){console.warn("Watch state send failed",e)}
+  }
+  async function startWatchFromModal(){
+    const input=document.getElementById("watchVideoUrl"),url=input?.value.trim();
+    if(!url){showToast("Enter a video URL");return} try{new URL(url)}catch{showToast("Enter a valid video URL");return}
+    if(!currentRoomCode){showToast("Join a room first");return} const v=wVideo();if(!v)return;
+    watchControllerId=sessionUserId;watchApplying=true;v.src=url;v.load();setWatchUI(true);
+    v.addEventListener("loadedmetadata",async function onMeta(){v.removeEventListener("loadedmetadata",onMeta);watchApplying=false;try{await v.play()}catch{}await publishWatchState("start")},{once:true});
+    v.addEventListener("error",()=>{watchApplying=false;showToast("This video URL cannot be played in this browser")},{once:true});
+    document.getElementById("watchPartyModal")?.classList.remove("active");showToast("Watch party started 🎬");
+  }
+  async function stopWatchParty(){
+    if(!currentRoomCode)return; const v=wVideo();watchControllerId=sessionUserId;watchApplying=true;if(v){v.pause();v.removeAttribute("src");v.load()}setWatchUI(false);watchApplying=false;
+    try{await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName||"User",message:JSON.stringify({action:"stop",controller:sessionUserId,ts:Date.now()}),message_type:"watch_state"})}catch{}
+    showToast("Watch party stopped");
+  }
+  async function applyWatchState(state){
+    if(!state||!currentRoomCode)return;const v=wVideo();if(!v)return;
+    if(state.action==="stop"){watchApplying=true;v.pause();v.removeAttribute("src");v.load();setWatchUI(false);watchApplying=false;return}
+    if(!state.url)return;watchControllerId=state.controller||watchControllerId;watchApplying=true;
+    if((v.currentSrc||v.src)!==state.url){v.src=state.url;v.load();await new Promise(resolve=>{let done=false;const finish=()=>{if(done)return;done=true;resolve()};v.addEventListener("loadedmetadata",finish,{once:true});v.addEventListener("error",finish,{once:true});setTimeout(finish,5000)})}
+    if(Number.isFinite(state.time)){try{if(Math.abs((v.currentTime||0)-state.time)>1.25)v.currentTime=state.time}catch{}}
+    setWatchUI(true);watchApplying=false;if(state.playing){try{await v.play()}catch{}}else v.pause();
+  }
+  async function syncLatestWatchState(){
+    if(!currentRoomCode||!supabaseClient)return;try{const {data,error}=await supabaseClient.from("room_messages").select("id,user_id,message").eq("room_code",currentRoomCode).eq("message_type","watch_state").order("id",{ascending:false}).limit(1);if(error||!data?.[0])return;const row=data[0];if(Number(row.id)<=watchLastId)return;watchLastId=Number(row.id);let state;try{state=JSON.parse(row.message)}catch{return}if(row.user_id===sessionUserId&&state.action!=="start")return;await applyWatchState(state)}catch(e){console.warn("Watch state sync failed",e)}}
+  async function startWatchPolling(){clearInterval(watchPollTimer);watchLastId=0;await syncLatestWatchState();watchPollTimer=setInterval(syncLatestWatchState,1000)}
+  function stopWatchPolling(){clearInterval(watchPollTimer);watchPollTimer=null;watchLastId=0}
+  function openWatchPartyModal(){ensureWatchUI();document.getElementById("watchPartyModal")?.classList.add("active");showMediaControls()}
+  function clearOldLocalRooms(){try{localStorage.removeItem("hangout_recent_rooms_v1");localStorage.removeItem("hangout_recent_rooms_v0")}catch{}}
+  function addClearRoomsButton(){const wrap=document.getElementById("recentRooms");if(!wrap||document.getElementById("clearRecentRoomsBtn"))return;const b=document.createElement("button");b.id="clearRecentRoomsBtn";b.textContent="Clear old rooms";b.style.cssText="margin-top:9px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#ff9b9b;border-radius:9px;padding:8px 10px;font-size:10px;cursor:pointer";b.onclick=()=>{if(!confirm("Remove all old rooms from this browser list?"))return;localStorage.removeItem(RECENT_ROOMS_KEY);clearOldLocalRooms();renderRecentRooms();showToast("Old room list cleared ✓")};wrap.appendChild(b)}
+  const originalRender=window.renderRecentRooms;window.renderRecentRooms=function(){try{originalRender?.()}catch{}clearOldLocalRooms();addClearRoomsButton()};
+  const originalEnter=window.enterRoom;window.enterRoom=async function(roomName,code){await originalEnter(roomName,code);ensureWatchUI();await startWatchPolling()};
+  const originalLeave=window.leaveRoom;window.leaveRoom=async function(){stopWatchPolling();setWatchUI(false);await originalLeave()};
+  window.openWatchPartyModal=openWatchPartyModal;window.stopWatchParty=stopWatchParty;
+  clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
 })();
 </script>
 </body>
