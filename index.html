@@ -5983,6 +5983,24 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     if(a?.srcObject)a.play().catch(()=>{});
   },{passive:true});
 
+  /* Room entry is defined elsewhere in this legacy page. Do not depend on
+     wrapping that function: watch the room state directly so the signaling
+     channel is ALWAYS created after a user joins a room. */
+  const roomWatcher=setInterval(()=>{
+    if(!currentRoomCode){
+      if(S.room){
+        S.room=null;
+        S.subscribed=false;
+      }
+      return;
+    }
+    if(!S.channel || S.room!==currentRoomCode || !S.subscribed){
+      connect().catch(e=>console.warn("Screen-share channel init:",e));
+    }else if(!S.host){
+      requestHost().catch(()=>{});
+    }
+  },1500);
+
   if(typeof currentRoomCode!=="undefined" && currentRoomCode){
     connect().catch(e=>console.warn("Screen-share channel init:",e));
   }
