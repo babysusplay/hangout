@@ -4657,6 +4657,8 @@ loadLocalProfile();
     },2000);
   }
 
+  /* Each start gets a fresh session id so stale offers/peers from a previous share cannot be reused. */
+  let shareSessionId=null;
   async function createOffer(viewerId,preferred){
     if(!S.host||!S.stream||!viewerId||viewerId===sessionUserId)return;
     closePeer(viewerId);
@@ -4682,6 +4684,7 @@ loadLocalProfile();
 
     await send({
       type:"offer",from:sessionUserId,to:viewerId,
+      session:shareSessionId,
       codec:preferred||"H264",
       sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
     });
@@ -4689,6 +4692,7 @@ loadLocalProfile();
 
   async function receiveOffer(data){
     if(S.host||data.to!==sessionUserId||!data.sdp)return;
+    if(data.session)S.remoteSessionId=data.session;
     closePeer(data.from);
     const pc=rtc();
     pc.__hangoutLastCodec=data.codec||"H264";
@@ -4718,7 +4722,7 @@ loadLocalProfile();
     await waitIce(pc);
 
     await send({
-      type:"answer",from:sessionUserId,to:data.from,codec:data.codec||"H264",
+      type:"answer",from:sessionUserId,to:data.from,session:data.session,codec:data.codec||"H264",
       sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
     });
 
@@ -4727,6 +4731,7 @@ loadLocalProfile();
 
   async function receiveAnswer(data){
     if(!S.host||data.to!==sessionUserId||!data.sdp)return;
+    if(data.session&&data.session!==shareSessionId)return;
     const pc=S.peers.get(data.from);
     if(!pc||pc.signalingState!=="have-local-offer")return;
     try{await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));}
@@ -4772,7 +4777,7 @@ loadLocalProfile();
       const vt=stream.getVideoTracks()[0];
       if(!vt)throw new Error("No video track");
 
-      S.stream=stream;S.host=true;
+      S.stream=stream;S.host=true;shareSessionId=(crypto.randomUUID?.()||("share-"+Date.now()+"-"+Math.random().toString(36).slice(2)));
       screenShareStream=stream;isScreenShareHost=true;
       if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=sessionUserId;
 
@@ -4824,12 +4829,13 @@ loadLocalProfile();
     if(S.stream)S.stream.getTracks().forEach(t=>{try{t.stop();}catch{}});
     S.stream=null;S.host=false;screenShareStream=null;isScreenShareHost=false;
     if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=null;
+    shareSessionId=null;
     closeAll();
     const v=video(),a=audio();
     if(v){v.pause();v.srcObject=null;}
     if(a){a.pause();a.srcObject=null;}
     ui(false);
-    if(active&&S.ready)await send({type:"stop",from:sessionUserId});
+    if(active&&S.ready)await send({type:"stop",from:sessionUserId,session:shareSessionId});
     if(active)showToast("Screen sharing stopped");
   }
 
@@ -4942,7 +4948,9 @@ loadLocalProfile();
   const originalEnter=window.enterRoom;window.enterRoom=async function(roomName,code){await originalEnter(roomName,code);ensureWatchUI();await startWatchPolling()};
   const originalLeave=window.leaveRoom;window.leaveRoom=async function(){stopWatchPolling();setWatchUI(false);await originalLeave()};
   window.openWatchPartyModal=openWatchPartyModal;window.stopWatchParty=stopWatchParty;
-  let watchRoomCode="";\n  setInterval(()=>{if(currentRoomCode&&watchRoomCode!==currentRoomCode){watchRoomCode=currentRoomCode;startWatchPolling()}else if(!currentRoomCode&&watchRoomCode){watchRoomCode="";stopWatchPolling()}},800);\n  clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
+  let watchRoomCode="";
+  setInterval(()=>{if(currentRoomCode&&watchRoomCode!==currentRoomCode){watchRoomCode=currentRoomCode;startWatchPolling()}else if(!currentRoomCode&&watchRoomCode){watchRoomCode="";stopWatchPolling()}},800);
+  clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
 })();
 </script>
 <script>
