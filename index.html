@@ -4945,5 +4945,35 @@ loadLocalProfile();
   clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
 })();
 </script>
+<script>
+(function(){
+  async function deleteAllCloudRooms(){
+    if(!confirm("This will permanently delete ALL rooms, room members and room messages from the Hangout database. Continue?"))return;
+    try{
+      const a=await supabaseClient.from("room_messages").delete().neq("id",0); if(a.error)throw a.error;
+      const b=await supabaseClient.from("room_members").delete().neq("id",0); if(b.error)throw b.error;
+      const c=await supabaseClient.from("rooms").delete().neq("id",0); if(c.error)throw c.error;
+      localStorage.removeItem(RECENT_ROOMS_KEY);localStorage.removeItem("hangout_recent_rooms_v1");
+      renderRecentRooms();showToast("All old rooms deleted ✓");
+    }catch(e){console.error(e);showToast("Could not delete cloud rooms. Check Supabase delete policy.");}
+  }
+  function addCloudDeleteButton(){
+    const wrap=document.getElementById("recentRooms");if(!wrap||document.getElementById("deleteCloudRoomsBtn"))return;
+    const b=document.createElement("button");b.id="deleteCloudRoomsBtn";b.textContent="Delete all rooms";
+    b.style.cssText="margin:9px 0 0 6px;border:1px solid rgba(239,68,68,.28);background:rgba(239,68,68,.13);color:#ffb0b0;border-radius:9px;padding:8px 10px;font-size:10px;cursor:pointer";
+    b.onclick=deleteAllCloudRooms;wrap.appendChild(b);
+  }
+  const oldStart=window.startScreenShare;
+  window.startScreenShare=async function(){
+    if(!navigator.mediaDevices?.getDisplayMedia){
+      if(typeof window.openWatchPartyModal==="function"){showToast("Screen capture is unavailable here — opening Watch Together");window.openWatchPartyModal();return;}
+    }
+    return oldStart?.();
+  };
+  setTimeout(addCloudDeleteButton,250);
+  const oldRender=window.renderRecentRooms;
+  if(oldRender){window.renderRecentRooms=function(){oldRender();setTimeout(addCloudDeleteButton,0)}}
+})();
+</script>
 </body>
 </html>
