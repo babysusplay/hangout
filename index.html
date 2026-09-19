@@ -4942,7 +4942,7 @@ loadLocalProfile();
   const originalEnter=window.enterRoom;window.enterRoom=async function(roomName,code){await originalEnter(roomName,code);ensureWatchUI();await startWatchPolling()};
   const originalLeave=window.leaveRoom;window.leaveRoom=async function(){stopWatchPolling();setWatchUI(false);await originalLeave()};
   window.openWatchPartyModal=openWatchPartyModal;window.stopWatchParty=stopWatchParty;
-  clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
+  let watchRoomCode="";\n  setInterval(()=>{if(currentRoomCode&&watchRoomCode!==currentRoomCode){watchRoomCode=currentRoomCode;startWatchPolling()}else if(!currentRoomCode&&watchRoomCode){watchRoomCode="";stopWatchPolling()}},800);\n  clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
 })();
 </script>
 <script>
