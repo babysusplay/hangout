@@ -4546,6 +4546,8 @@ loadLocalProfile();
     v.playsInline=true;
     v.setAttribute("playsinline","");
     v.setAttribute("webkit-playsinline","");
+    /* Keep video muted; the dedicated audio element owns remote audio.
+       This avoids duplicate/competing audio playback on mobile browsers. */
     v.muted=true;
     v.controls=false;
     v.preload="auto";
@@ -4585,11 +4587,18 @@ loadLocalProfile();
           return;
         }
         const age=Date.now()-pc.__hangoutStatStart.at;
-        if(age<3500)return;
+        /* Mobile browsers can omit framesDecoded entirely. Never treat an
+           unsupported metric as "zero frames", and give slow ICE/decoder
+           startup much more time before rebuilding a healthy peer. */
+        if(age<10000)return;
         const gotBytes=bytes>pc.__hangoutStatStart.bytes;
-        const gotFrames=frames>pc.__hangoutStatStart.frames;
+        const hasFrameMetric=Number.isFinite(Number(inbound?.framesDecoded));
+        const gotFrames=hasFrameMetric
+          ? frames>pc.__hangoutStatStart.frames
+          : false;
         const rendered=!!(v&&v.readyState>=2&&v.currentTime>0);
-        if(gotFrames)return;
+        if(rendered || gotFrames)return;
+        if(pc.connectionState!=="connected" && pc.connectionState!=="connecting")return;
 
         const key=from+":"+((pc.__hangoutRetry||0)+1);
         if(S.retrying.has(key))return;
