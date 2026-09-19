@@ -1063,6 +1063,8 @@ button{
     display:none;
 }
 .media-card .media-controls{z-index:4;}
+.mobile-invite-btn{display:none;}
+@media(max-width:700px){.mobile-invite-btn{display:block;}}
 .media-card .media-live-badge{
     position:absolute;
     top:14px;
@@ -1677,6 +1679,7 @@ button{
                         <div class="media-controls" id="mediaControls">
 
                             <button id="mediaShareBtn" class="control-btn" onclick="toggleScreenShare(event)" title="Screen Share">🖥️</button>
+                            <button class="control-btn mobile-invite-btn" onclick="copyInvite(event)" title="Copy Invite Link">🔗</button>
                             <button class="control-btn" onclick="toggleShareSettings(event)" title="Screen Share Quality">⚙</button>
                             <button class="control-btn" onclick="togglePeople(event)" title="People">👥</button>
                             <button class="control-btn" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
@@ -3291,17 +3294,45 @@ function toggleFullscreen(){
    INVITE
 ========================= */
 
-function copyInvite(){
+async function copyInvite(event){
+    event?.stopPropagation();
 
-    const link =
-        window.location.origin +
-        window.location.pathname +
-        "?room=" +
-        currentRoomCode;
+    if(!currentRoomCode){
+        showToast("Join a room first");
+        return;
+    }
 
-    navigator.clipboard?.writeText(link);
+    const link=window.location.origin+window.location.pathname+"?room="+encodeURIComponent(currentRoomCode);
 
-    showToast("Invite link copied 🔗");
+    try{
+        if(navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
+            await navigator.share({title:"Join my Hangout room",text:"Join my Hangout room",url:link});
+            return;
+        }
+    }catch(e){
+        if(e?.name==="AbortError")return;
+    }
+
+    try{
+        await navigator.clipboard.writeText(link);
+        showToast("Invite link copied 🔗");
+        return;
+    }catch(e){}
+
+    try{
+        const ta=document.createElement("textarea");
+        ta.value=link;
+        ta.style.position="fixed";
+        ta.style.opacity="0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        showToast("Invite link copied 🔗");
+    }catch(e){
+        showToast("Copy link failed");
+    }
 }
 
 
@@ -4726,7 +4757,11 @@ loadLocalProfile();
     if(S.stream)return;
     try{
       if(!navigator.mediaDevices?.getDisplayMedia){
-        showToast("Screen sharing is not supported in this browser");return;
+        const isMobile=/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        showToast(isMobile
+          ?"This mobile browser cannot share its screen. Try a browser/device with screen-capture support."
+          :"Screen sharing is not supported in this browser");
+        return;
       }
       const stream=await navigator.mediaDevices.getDisplayMedia({
         video:{frameRate:{ideal:30,max:60}},
