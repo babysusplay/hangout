@@ -4466,7 +4466,11 @@ loadLocalProfile();
         resolve();
       };
       const check=()=>{if(pc.iceGatheringState==="complete")finish();};
-      const timer=setTimeout(finish,7000);
+      /* Do not block a restart for the full ICE gathering window. The
+         gathered candidates already available after a short grace period
+         are enough for most mobile/mobile and mobile/desktop connections;
+         TURN/STUN recovery can still rebuild the peer if needed. */
+      const timer=setTimeout(finish,3000);
       pc.addEventListener("icegatheringstatechange",check);
     });
   }
