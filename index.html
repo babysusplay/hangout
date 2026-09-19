@@ -5573,7 +5573,10 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
 
   function closePeer(id){
     const pc=S.peers.get(id);
-    if(pc){try{pc.ontrack=null;pc.close();}catch{}}
+    if(pc){
+      try{clearInterval(pc.__hangoutStatsTimer);}catch{}
+      try{pc.ontrack=null;pc.close();}catch{}
+    }
     S.peers.delete(id);
   }
 
