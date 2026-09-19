@@ -5198,6 +5198,7 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
             HS.subscribed=false;
         }
         HS.setupRoom=currentRoomCode;
+        try{ peerConnections=HS.peers; }catch{}
         HS.channel=supabaseClient.channel("hangout-screen-v3-"+currentRoomCode,{
             config:{broadcast:{self:false}}
         });
@@ -5363,6 +5364,12 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
             await hsHandleIce(signal);
             return;
         }
+        if(signal.type==="quality-request"){
+            if(isScreenShareHost && signal.from){
+                try{ applyQualityToPeer(signal.from,signal.quality||"source"); }catch{}
+            }
+            return;
+        }
         if(signal.type==="share-stop"){
             if(!isScreenShareHost){
                 hsCloseAll();
@@ -5502,9 +5509,14 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
         }
     };
 
-    /* The old DB signaling path is intentionally disabled. It can no longer
-       create competing offers against the canonical v3 connection. */
-    window.broadcastSignal=async function(){ return true; };
+    /* Disable the old DB/WebRTC negotiation so it cannot compete with v3.
+       Quality requests still use the new broadcast channel. */
+    window.createOfferFor=async function(){ return; };
+    window.handleSignalMessage=function(){ return; };
+    window.broadcastSignal=async function(payload){
+        if(!payload)return false;
+        return hsSend(payload);
+    };
     window.requestCurrentScreenShare=async function(){ await hsRequestHost(); };
 
     const oldLeaveRoom=window.leaveRoom;
