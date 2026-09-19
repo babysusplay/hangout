@@ -5578,9 +5578,36 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     for(const id of Array.from(S.peers.keys())) closePeer(id);
   }
 
+  function preferVideoCodec(pc){
+    try{
+      const caps=RTCRtpReceiver.getCapabilities?.("video");
+      if(!caps?.codecs)return;
+      const codecs=[...caps.codecs];
+      const order={"video/VP8":0,"video/H264":1,"video/VP9":2};
+      codecs.sort((a,b)=>(order[a.mimeType]??99)-(order[b.mimeType]??99));
+      for(const tr of pc.getTransceivers()){
+        if(tr.receiver?.track?.kind==="video" || tr.sender?.track?.kind==="video"){
+          if(typeof tr.setCodecPreferences==="function") tr.setCodecPreferences(codecs);
+        }
+      }
+    }catch(e){console.warn("Codec preference unavailable:",e);}
+  }
+
+  function limitVideoSender(pc){
+    try{
+      for(const sender of pc.getSenders()){
+        if(sender.track?.kind!=="video")continue;
+        const p=sender.getParameters();
+        p.encodings=p.encodings?.length?p.encodings:[{}];
+        p.encodings[0].maxBitrate=2200000;
+        p.encodings[0].maxFramerate=24;
+        sender.setParameters(p).catch(()=>{});
+      }
+    }catch(e){console.warn("Video sender limits unavailable:",e);}
+  }
+
   function rtc(){
     return new RTCPeerConnection({
-      iceServers:[
         {urls:"stun:stun.l.google.com:19302"},
         {urls:"stun:stun1.l.google.com:19302"},
         {
@@ -5737,6 +5764,9 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
       pc.addTrack(track,S.stream);
     }
 
+    preferVideoCodec(pc);
+    limitVideoSender(pc);
+
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
     await waitIce(pc);
@@ -5785,6 +5815,7 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    preferVideoCodec(pc);
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await waitIce(pc);
@@ -5818,7 +5849,10 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     v.srcObject=stream;
     v.autoplay=true;
     v.playsInline=true;
+    v.setAttribute("playsinline","");
+    v.setAttribute("webkit-playsinline","");
     v.controls=false;
+    v.preload="auto";
     v.style.display="block";
     setUI(true);
 
