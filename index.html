@@ -4975,5 +4975,32 @@ loadLocalProfile();
   if(oldRender){window.renderRecentRooms=function(){oldRender();setTimeout(addCloudDeleteButton,0)}}
 })();
 </script>
+<script>
+(function(){
+  const oldToggle=window.toggleScreenShare;
+  window.toggleScreenShare=async function(e){
+    e?.stopPropagation();
+    if(!navigator.mediaDevices?.getDisplayMedia){
+      if(typeof window.openWatchPartyModal==="function"){showToast("Screen capture is unavailable here — opening Watch Together");window.openWatchPartyModal();return;}
+    }
+    return oldToggle?.(e);
+  };
+  function addPermanentCleanupButton(){
+    const actions=document.querySelector(".hero-actions");if(!actions||document.getElementById("deleteAllRoomsLandingBtn"))return;
+    const b=document.createElement("button");b.id="deleteAllRoomsLandingBtn";b.className="secondary-btn";b.textContent="Delete All Old Rooms";
+    b.onclick=async()=>{
+      if(!confirm("Permanently delete ALL rooms, members and messages from the Hangout database? This cannot be undone."))return;
+      try{
+        const a=await supabaseClient.from("room_messages").delete().neq("id",0);if(a.error)throw a.error;
+        const m=await supabaseClient.from("room_members").delete().neq("id",0);if(m.error)throw m.error;
+        const r=await supabaseClient.from("rooms").delete().neq("id",0);if(r.error)throw r.error;
+        localStorage.removeItem("hangout_recent_rooms_v1");localStorage.removeItem(RECENT_ROOMS_KEY);renderRecentRooms();showToast("All rooms deleted ✓");
+      }catch(err){console.error(err);showToast("Cloud deletion failed — check Supabase delete policy");}
+    };
+    actions.appendChild(b);
+  }
+  setTimeout(addPermanentCleanupButton,400);
+})();
+</script>
 </body>
 </html>
