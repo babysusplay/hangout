@@ -1308,11 +1308,6 @@ button{
 .emoji-tab.active{background:#252735;color:#fff;}
 .emoji-panel{display:none;max-height:255px;overflow:auto;padding:2px;}
 .emoji-panel.active{display:block;}
-.emoji-source-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:3px;background:#080910;border-radius:8px;padding:3px;margin-bottom:8px;}
-.emoji-source-tab{border:0;background:transparent;color:#8f94a3;border-radius:6px;padding:7px 4px;font-size:9px;font-weight:700;cursor:pointer;}
-.emoji-source-tab.active{background:#252735;color:#fff;}
-.emoji-source-panel{display:none;}
-.emoji-source-panel.active{display:block;}
 .emoji-search-row{display:flex;gap:5px;margin-bottom:7px;}
 .emoji-search{flex:1;min-width:0;background:#080910;border:1px solid var(--border);border-radius:8px;color:#fff;padding:7px 9px;font-size:10px;outline:none;}
 .emoji-search-btn{border:0;background:#6d3df5;color:#fff;border-radius:8px;padding:0 10px;font-size:10px;font-weight:700;cursor:pointer;}
@@ -1343,12 +1338,38 @@ button{
 .image-lightbox img{max-width:94vw;max-height:90vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.55);}
 .image-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border:0;border-radius:50%;background:rgba(20,22,30,.9);color:#fff;font-size:20px;cursor:pointer;}
 @media(max-width:700px){
-    .emoji-picker{left:0;right:0;bottom:calc(100% + 6px);width:100%;max-width:none;max-height:52dvh;border-radius:14px 14px 0 0;}
-    .emoji-panel{max-height:46dvh;}
+    .emoji-picker{right:0;bottom:48px;width:min(300px,calc(100vw - 16px));max-height:285px;}
+    .emoji-panel{max-height:225px;}
     .emoji-grid,.custom-emoji-grid{grid-template-columns:repeat(7,1fr);}
     .custom-sticker-grid{grid-template-columns:repeat(4,1fr);}
     .gif-results{grid-template-columns:repeat(2,1fr);}
     .chat-image-message{max-width:150px;max-height:130px;}
+}
+
+
+/* =========================
+   PROFILE / IDENTITY
+========================= */
+.navbar-actions{display:flex;align-items:center;gap:8px;}
+.profile-nav-btn{display:flex;align-items:center;gap:7px;border:1px solid var(--border);background:rgba(255,255,255,.035);color:#ddd;border-radius:10px;padding:5px 9px 5px 6px;cursor:pointer;font-size:10px;}
+.profile-nav-btn:hover{background:rgba(255,255,255,.06);}
+.nav-profile-avatar{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:#292c3a;color:#fff;font-size:10px;font-weight:800;overflow:hidden;}
+.nav-profile-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+.profile-modal{max-width:390px;}
+.profile-editor{text-align:center;margin:3px 0 16px;}
+.profile-avatar-editor{position:relative;width:92px;height:92px;border:0;border-radius:25px;background:#292c3a;color:#fff;display:grid;place-items:center;margin:0 auto 8px;overflow:hidden;cursor:pointer;box-shadow:0 12px 30px rgba(0,0,0,.25);}
+.profile-avatar-editor img{display:none;width:100%;height:100%;object-fit:cover;}
+.profile-avatar-editor.has-image img{display:block;}
+.profile-avatar-editor.has-image #profilePreviewFallback{display:none;}
+#profilePreviewFallback{font-size:30px;font-weight:800;}
+.profile-camera{position:absolute;right:5px;bottom:5px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.75);font-size:13px;}
+.profile-picture-help{color:#707688;font-size:9px;}
+.message[data-user-id] .message-name{font-weight:700;}
+.message-avatar-img{width:100%;height:100%;object-fit:cover;display:block;}
+@media(max-width:700px){
+    .nav-profile-label{display:none;}
+    .profile-nav-btn{padding:4px;}
+    .navbar-actions{gap:6px;}
 }
 
 </style>
@@ -1371,9 +1392,15 @@ button{
             HANGOUT
         </div>
 
-        <button class="nav-btn" onclick="openJoin()">
-            Join Room
-        </button>
+        <div class="navbar-actions">
+            <button class="profile-nav-btn" onclick="openProfile()" title="Your profile">
+                <span id="navProfileAvatar" class="nav-profile-avatar">A</span>
+                <span class="nav-profile-label">Profile</span>
+            </button>
+            <button class="nav-btn" onclick="openJoin()">
+                Join Room
+            </button>
+        </div>
     </nav>
 
     <div class="hero">
@@ -1525,6 +1552,33 @@ button{
 
 </div>
 
+
+<!-- =========================
+     PROFILE MODAL
+========================= -->
+
+<div class="modal-backdrop" id="profileModal">
+    <div class="modal profile-modal">
+        <div class="modal-header">
+            <h2>Your Profile</h2>
+            <button class="close" onclick="closeProfile()">×</button>
+        </div>
+        <div class="profile-editor">
+            <button class="profile-avatar-editor" type="button" onclick="document.getElementById('profileImageInput').click()" title="Choose profile picture">
+                <img id="profilePreview" alt="Profile picture">
+                <span id="profilePreviewFallback">A</span>
+                <span class="profile-camera">📷</span>
+            </button>
+            <input id="profileImageInput" type="file" accept="image/*" hidden onchange="handleProfileImage(event)">
+            <div class="profile-picture-help">Click the picture to upload a profile photo</div>
+        </div>
+        <div class="input-group">
+            <label>Your name</label>
+            <input id="profileNameInput" class="input" maxlength="25" placeholder="Enter your name">
+        </div>
+        <button class="primary-btn" onclick="saveProfile()">Save Profile</button>
+    </div>
+</div>
 
 <!-- =========================
      ROOM
@@ -1717,23 +1771,14 @@ button{
                             </div>
 
                             <div class="emoji-panel active" id="emojiPanel">
-                                <div class="emoji-source-tabs">
-                                    <button class="emoji-source-tab active" data-source="website" onclick="switchEmojiSource('website',event)">Website Emoji</button>
-                                    <button class="emoji-source-tab" data-source="default" onclick="switchEmojiSource('default',event)">Default Emoji</button>
+                                <div class="custom-emoji-title">
+                                    <span>EMOJI</span>
+                                    <label class="custom-emoji-upload">＋ Add <input id="customEmojiInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomEmoji(event)"></label>
                                 </div>
-
-                                <div class="emoji-source-panel active" id="websiteEmojiPanel">
-                                    <div class="custom-emoji-title">
-                                        <span>MY EMOJIS</span>
-                                        <label class="custom-emoji-upload">＋ Add <input id="customEmojiInput" type="file" accept="image/*,.gif,.webp" hidden onchange="uploadCustomEmoji(event)"></label>
-                                    </div>
+                                <div class="emoji-grid" id="emojiGrid"></div>
+                                <div class="custom-asset-section">
+                                    <div class="custom-emoji-title"><span>MY EMOJIS</span></div>
                                     <div class="custom-emoji-grid" id="customEmojiGrid"></div>
-                                    <div class="gif-empty" id="websiteEmojiEmpty">No website emojis yet. Tap + Add to upload one.</div>
-                                </div>
-
-                                <div class="emoji-source-panel" id="defaultEmojiPanel">
-                                    <div class="custom-emoji-title"><span>DEFAULT EMOJI</span></div>
-                                    <div class="emoji-grid" id="emojiGrid"></div>
                                 </div>
                             </div>
 
@@ -1824,7 +1869,310 @@ button{
 <div class="toast" id="toast"></div>
 
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+
+/* =========================
+   HANGOUT IDENTITY / PRESENCE FIXES
+   Added without removing the existing room structure.
+========================= */
+const PROFILE_KEY="hangout_profile_v1";
+const PRESENCE_HEARTBEAT_MS=20000;
+const PRESENCE_STALE_MS=70000;
+let profileData={name:"",avatar:""};
+let presenceTimer=null;
+const NAME_COLORS=["#8b5cf6","#22c55e","#38bdf8","#f59e0b","#ef4444","#ec4899","#14b8a6","#a855f7","#84cc16","#f97316","#06b6d4","#e879f9"];
+
+function loadLocalProfile(){
+    try{ const p=JSON.parse(localStorage.getItem(PROFILE_KEY)||"{}"); profileData={name:String(p.name||""),avatar:String(p.avatar||"")}; }
+    catch{ profileData={name:"",avatar:""}; }
+    updateProfileUI();
+}
+function saveLocalProfile(){ localStorage.setItem(PROFILE_KEY,JSON.stringify(profileData)); updateProfileUI(); }
+function updateProfileUI(){
+    const name=profileData.name||currentUserName||"You";
+    const fallback=document.getElementById("profilePreviewFallback");
+    const preview=document.getElementById("profilePreview");
+    const editor=document.querySelector(".profile-avatar-editor");
+    if(fallback) fallback.textContent=(name.charAt(0)||"A").toUpperCase();
+    if(preview){ preview.src=profileData.avatar||""; preview.alt=name+" profile picture"; }
+    if(editor) editor.classList.toggle("has-image",!!profileData.avatar);
+    const nav=document.getElementById("navProfileAvatar");
+    if(nav){ nav.innerHTML=""; if(profileData.avatar){ const img=document.createElement("img"); img.src=profileData.avatar; img.alt=""; nav.appendChild(img); } else nav.textContent=(name.charAt(0)||"A").toUpperCase(); }
+}
+function openProfile(){
+    const input=document.getElementById("profileNameInput");
+    if(input) input.value=profileData.name||currentUserName||"";
+    updateProfileUI();
+    document.getElementById("profileModal")?.classList.add("active");
+}
+function closeProfile(){ document.getElementById("profileModal")?.classList.remove("active"); }
+function resizeProfileImage(file,maxSize=256,quality=.82){
+    return new Promise((resolve,reject)=>{
+        if(!file || !file.type.startsWith("image/")) return reject(new Error("Invalid image"));
+        const reader=new FileReader();
+        reader.onload=()=>{
+            const img=new Image();
+            img.onload=()=>{
+                const scale=Math.min(1,maxSize/Math.max(img.width,img.height));
+                const canvas=document.createElement("canvas");
+                canvas.width=Math.max(1,Math.round(img.width*scale));
+                canvas.height=Math.max(1,Math.round(img.height*scale));
+                const ctx=canvas.getContext("2d"); ctx.drawImage(img,0,0,canvas.width,canvas.height);
+                resolve(canvas.toDataURL("image/webp",quality));
+            };
+            img.onerror=()=>reject(new Error("Image load failed")); img.src=reader.result;
+        };
+        reader.onerror=()=>reject(reader.error||new Error("File read failed")); reader.readAsDataURL(file);
+    });
+}
+async function handleProfileImage(event){
+    const file=event.target.files?.[0]; event.target.value=""; if(!file)return;
+    try{ profileData.avatar=await resizeProfileImage(file); updateProfileUI(); }
+    catch(e){ console.error(e); showToast("Could not use that picture"); }
+}
+async function saveProfile(){
+    const input=document.getElementById("profileNameInput");
+    const name=input?.value.trim()||profileData.name||currentUserName||"You";
+    profileData.name=name.slice(0,25); currentUserName=profileData.name;
+    saveLocalProfile(); closeProfile();
+    if(currentRoomCode){
+        await publishProfile();
+        await supabaseClient.from("room_members").update({user_name:currentUserName}).eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
+        await loadMembers();
+    }
+    showToast("Profile updated ✓");
+}
+function getNameColor(userId){
+    const id=String(userId||""); let hash=0; for(let i=0;i<id.length;i++) hash=((hash<<5)-hash)+id.charCodeAt(i)|0;
+    return NAME_COLORS[Math.abs(hash)%NAME_COLORS.length];
+}
+function getIdentity(userId,name){
+    const p=roomProfiles?.[userId];
+    return {name:p?.name||name||"Unknown",avatar:p?.avatar||"",color:p?.color||getNameColor(userId)};
+}
+let roomProfiles={};
+async function publishProfile(){
+    if(!currentRoomCode)return;
+    const payload={user_id:sessionUserId,name:currentUserName||profileData.name||"You",avatar:profileData.avatar||"",color:getNameColor(sessionUserId),updated_at:Date.now()};
+    roomProfiles[sessionUserId]=payload;
+    try{ await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName,message:JSON.stringify(payload),message_type:"profile"}); }
+    catch(e){ console.error("Profile sync error",e); }
+}
+function loadProfileMessage(raw){
+    let p; try{p=typeof raw==="string"?JSON.parse(raw):raw;}catch{return;}
+    if(!p?.user_id)return;
+    roomProfiles[p.user_id]={...roomProfiles[p.user_id],...p};
+    refreshRenderedIdentities(p.user_id);
+    renderMembers();
+}
+function makeAvatarElement(identity,sizeClass=""){
+    const avatar=document.createElement("div"); avatar.className="avatar "+sizeClass;
+    if(identity.avatar){ const img=document.createElement("img"); img.className="message-avatar-img"; img.src=identity.avatar; img.alt=""; avatar.textContent=""; avatar.appendChild(img); }
+    else avatar.textContent=(identity.name||"?").charAt(0).toUpperCase();
+    avatar.style.background=identity.color;
+    return avatar;
+}
+function refreshRenderedIdentities(userId){
+    document.querySelectorAll(`.message[data-user-id="${CSS.escape(userId)}"]`).forEach(message=>{
+        const identity=getIdentity(userId,message.dataset.fallbackName||"");
+        const who=message.querySelector(".message-name"); if(who){who.textContent=identity.name;who.style.color=identity.color;}
+        const avatar=message.querySelector(".avatar");
+        if(avatar){avatar.style.background=identity.color; avatar.innerHTML=""; if(identity.avatar){const img=document.createElement("img");img.className="message-avatar-img";img.src=identity.avatar;img.alt="";avatar.appendChild(img);}else avatar.textContent=(identity.name||"?").charAt(0).toUpperCase();}
+    });
+}
+function createMessageShell(name,userId){
+    const identity=getIdentity(userId,name); const message=document.createElement("div"); message.className="message"; message.dataset.userId=userId||""; message.dataset.fallbackName=name||"";
+    const avatar=makeAvatarElement(identity); const content=document.createElement("div"); content.className="message-content";
+    const top=document.createElement("div"); top.className="message-top";
+    const who=document.createElement("span"); who.className="message-name"; who.textContent=identity.name; who.style.color=identity.color;
+    const time=document.createElement("span"); time.className="message-time"; time.textContent="now";
+    top.append(who,time); content.appendChild(top); message.append(avatar,content); return {message,content};
+}
+function appendChatMessage(name,text,isGif=false,userId=""){
+    const messages=document.getElementById("messages"); if(!messages)return; clearChatEmpty();
+    const {message,content}=createMessageShell(name,userId); const body=document.createElement("div"); body.className=isGif?"gif-message":"message-text"; body.textContent=text; content.appendChild(body); messages.appendChild(message); messages.scrollTop=messages.scrollHeight;
+}
+function appendGifMessage(name,url,preview,userId=""){
+    if(!url)return; const messages=document.getElementById("messages"); if(!messages)return; clearChatEmpty();
+    const {message,content}=createMessageShell(name,userId); const img=document.createElement("img"); img.className="gif-message-img"; img.src=preview||url; img.alt="GIF"; img.loading="lazy"; img.onclick=e=>{e.stopPropagation();openImageLightbox(url);}; content.appendChild(img); messages.appendChild(message); messages.scrollTop=messages.scrollHeight;
+}
+function appendImageMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return; const messages=document.getElementById("messages"); if(!messages)return; clearChatEmpty();
+    const {message,content}=createMessageShell(name,userId); const img=document.createElement("img"); img.className="chat-image-message"; img.src=src; img.alt="Chat image"; img.loading="lazy"; img.onclick=e=>{e.stopPropagation();openImageLightbox(src);}; content.appendChild(img); messages.appendChild(message); messages.scrollTop=messages.scrollHeight;
+}
+function appendEmojiMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return; const messages=document.getElementById("messages"); if(!messages)return; clearChatEmpty();
+    const {message,content}=createMessageShell(name,userId); const img=document.createElement("img"); img.className="custom-emoji-img"; img.style.width="48px"; img.style.height="48px"; img.src=src; img.alt="Custom emoji"; content.appendChild(img); messages.appendChild(message); messages.scrollTop=messages.scrollHeight;
+}
+function appendStickerMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return; const messages=document.getElementById("messages"); if(!messages)return; clearChatEmpty();
+    const {message,content}=createMessageShell(name,userId); const img=document.createElement("img"); img.className="chat-sticker-message"; img.src=src; img.alt="Custom sticker"; img.onclick=e=>{e.stopPropagation();openImageLightbox(src);}; content.appendChild(img); messages.appendChild(message); messages.scrollTop=messages.scrollHeight;
+}
+function appendRemoteMessage(msg){ appendChatMessage(msg.user_name,msg.message,false,msg.user_id); }
+function appendRemoteGif(msg){ let d;try{d=JSON.parse(msg.message);}catch{d={url:msg.message};} appendGifMessage(msg.user_name,d?.url,d?.preview,msg.user_id); }
+function appendRemoteImage(msg){ let d;try{d=JSON.parse(msg.message);}catch{return;} appendImageMessage(msg.user_name,d?.src,msg.user_id); }
+function appendRemoteSticker(msg){ let d;try{d=JSON.parse(msg.message);}catch{return;} appendStickerMessage(msg.user_name,d?.src,msg.user_id); }
+function appendRemoteEmoji(msg){ let d;try{d=JSON.parse(msg.message);}catch{return;} appendEmojiMessage(msg.user_name,d?.src,msg.user_id); }
+
+async function pruneStaleMembers(){
+    if(!currentRoomCode)return;
+    try{
+        const cutoff=new Date(Date.now()-PRESENCE_STALE_MS).toISOString();
+        await supabaseClient.from("room_members").delete().eq("room_code",currentRoomCode).lt("joined_at",cutoff);
+    }catch(e){console.warn("Presence cleanup failed",e);}
+}
+async function heartbeatPresence(){
+    if(!currentRoomCode)return;
+    try{ await supabaseClient.from("room_members").update({joined_at:new Date().toISOString(),user_name:currentUserName}).eq("room_code",currentRoomCode).eq("user_id",sessionUserId); }catch(e){console.warn("Presence heartbeat failed",e);}
+    await pruneStaleMembers();
+}
+function startPresenceHeartbeat(){
+    clearInterval(presenceTimer); heartbeatPresence(); presenceTimer=setInterval(heartbeatPresence,PRESENCE_HEARTBEAT_MS);
+}
+function stopPresenceHeartbeat(){clearInterval(presenceTimer);presenceTimer=null;}
+function removePresenceOnExit(){
+    const code=currentRoomCode; if(!code)return;
+    try{
+        const url=SUPABASE_URL+"/rest/v1/room_members?room_code=eq."+encodeURIComponent(code)+"&user_id=eq."+encodeURIComponent(sessionUserId);
+        fetch(url,{method:"DELETE",headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:"Bearer "+SUPABASE_PUBLISHABLE_KEY},keepalive:true}).catch(()=>{});
+    }catch{}
+}
+
+async function loadMembers(){
+    await pruneStaleMembers();
+    const {data,error}=await supabaseClient.from("room_members").select("user_id,user_name,joined_at").eq("room_code",currentRoomCode).order("joined_at",{ascending:true});
+    if(error)throw error; roomMembers=data||[]; renderMembers();
+}
+function renderMembers(){
+    const panel=document.getElementById("peoplePanel"); if(!panel)return;
+    panel.innerHTML='<div class="people-title">People in this room</div>';
+    roomMembers.forEach(member=>{
+        const identity=getIdentity(member.user_id,member.user_name); const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;";
+        const avatar=makeAvatarElement(identity); avatar.style.width="28px"; avatar.style.height="28px"; avatar.style.flex="0 0 28px";
+        const span=document.createElement("span"); span.textContent=identity.name+(member.user_id===sessionUserId?" (You)":"")+(member.user_id===roomOwnerId?" 👑":""); span.style.color=identity.color;
+        row.append(avatar,span);
+        if(roomOwnerId===sessionUserId&&member.user_id!==sessionUserId){const kick=document.createElement("button");kick.className="kick-btn";kick.textContent="Kick";kick.title="Remove this person from the room";kick.onclick=()=>kickMember(member.user_id,member.user_name);row.appendChild(kick);}
+        panel.appendChild(row);
+    });
+    const count=document.getElementById("memberCount"); if(count)count.textContent=String(roomMembers.length);
+}
+
+function deleteRecentRoom(code){
+    if(!code)return; const rooms=getRecentRooms().filter(r=>r.room_code!==code); localStorage.setItem(RECENT_ROOMS_KEY,JSON.stringify(rooms)); renderRecentRooms(); showToast("Recent room removed");
+}
+function renderRecentRooms(){
+    const wrap=document.getElementById("recentRooms"),list=document.getElementById("recentRoomList"); if(!wrap||!list)return; const rooms=getRecentRooms(); list.innerHTML="";
+    if(!rooms.length){wrap.classList.remove("show");return;} wrap.classList.add("show");
+    rooms.forEach(room=>{
+        const item=document.createElement("div");item.className="recent-room-item";
+        item.innerHTML=`<div class="recent-room-info"><div class="recent-room-name">${escapeHTML(room.room_name||"Movie Night")}</div><div class="recent-room-code">${escapeHTML(room.room_code)}${room.is_host?" • Host":""}</div></div>`;
+        const actions=document.createElement("div");actions.className="recent-room-actions";
+        const join=document.createElement("button");join.className="recent-join";join.textContent="Join";join.onclick=()=>rejoinRecentRoom(room);
+        const edit=document.createElement("button");edit.textContent="Edit";edit.onclick=()=>editRecentRoom(room);
+        const del=document.createElement("button");del.className="recent-delete";del.textContent="Delete";del.title="Remove from recent rooms";del.onclick=()=>deleteRecentRoom(room.room_code);
+        actions.append(join,edit,del);item.appendChild(actions);list.appendChild(item);
+    });
+}
+
+async function loadRoomProfiles(){
+    roomProfiles={};
+    try{
+        const {data,error}=await supabaseClient.from("room_messages").select("message").eq("room_code",currentRoomCode).eq("message_type","profile").order("created_at",{ascending:true}).limit(500);
+        if(error)throw error; (data||[]).forEach(x=>loadProfileMessage(x.message));
+    }catch(e){console.warn("Profile load failed",e);}
+}
+
+async function setupRoomRealtime(){
+    closeRoomChannel(); await loadMembers();
+    roomChannel=supabaseClient.channel("hangout-room-"+currentRoomCode,{config:{broadcast:{self:false}}});
+    roomChannel
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"room_messages",filter:"room_code=eq."+currentRoomCode},payload=>{
+        const msg=payload.new; if(msg.message_type==="profile"){loadProfileMessage(msg.message);return;}
+        if(msg.user_id===sessionUserId)return;
+        if(msg.message_type==="text")appendRemoteMessage(msg);
+        else if(msg.message_type==="gif")appendRemoteGif(msg);
+        else if(msg.message_type==="image")appendRemoteImage(msg);
+        else if(msg.message_type==="custom_emoji")loadCustomEmojiAsset(msg.message);
+        else if(msg.message_type==="custom_sticker")loadCustomStickerAsset(msg.message);
+        else if(msg.message_type==="emoji_image")appendRemoteEmoji(msg);
+        else if(msg.message_type==="sticker_image")appendRemoteSticker(msg);
+        else if(msg.message_type==="custom_asset_remove")removeCustomAssetLocal(msg.message);
+        else if(msg.message_type==="system")addSystemMessage(msg.message);
+        else if(msg.message_type==="signal")handleSignalMessage(msg);
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:"room_members",filter:"room_code=eq."+currentRoomCode},async()=>{
+        try{await loadMembers();if(isScreenShareHost){for(const member of roomMembers){if(member.user_id!==sessionUserId&&!peerConnections[member.user_id])await createOfferFor(member.user_id);}}}catch(e){console.error(e);}
+      })
+      .subscribe(status=>{if(status==="SUBSCRIBED")showToast("Room connected ✓");});
+}
+
+async function requestCurrentScreenShare(){
+    if(!currentRoomCode||isScreenShareHost)return;
+    // Ask the current sharer to create a fresh peer connection for this device.
+    await broadcastSignal({type:"screen-share-request",from:sessionUserId,to:"room"});
+}
+
+/* Re-declare signaling handler so a late join can recover an already-active share. */
+const _originalHandleSignalMessage=handleSignalMessage;
+async function handleSignalMessage(msg){
+    let signal;try{signal=JSON.parse(msg.message);}catch{return;}
+    if(!signal)return;
+    if(signal.type==="screen-share-request"){
+        if(isScreenShareHost && signal.from!==sessionUserId){await createOfferFor(signal.from);} return;
+    }
+    return _originalHandleSignalMessage(msg);
+}
+
+async function loadExistingMessages(){
+    const {data,error}=await supabaseClient.from("room_messages").select("user_id,user_name,message,message_type,created_at").eq("room_code",currentRoomCode).neq("message_type","signal").order("created_at",{ascending:true}).limit(300);
+    if(error)throw error; clearChatMessagesOnly(); customEmojiAssets=[];customStickerAssets=[];roomProfiles={};
+    const rows=data||[];
+    rows.filter(x=>x.message_type==="profile").forEach(x=>loadProfileMessage(x.message));
+    rows.forEach(msg=>{
+        if(msg.message_type==="profile")return;
+        if(msg.message_type==="text")appendChatMessage(msg.user_name,msg.message,false,msg.user_id);
+        else if(msg.message_type==="gif"){let d;try{d=JSON.parse(msg.message);}catch{d={url:msg.message};}appendGifMessage(msg.user_name,d?.url,d?.preview,msg.user_id);}
+        else if(msg.message_type==="image")appendRemoteImage(msg);
+        else if(msg.message_type==="custom_emoji")loadCustomEmojiAsset(msg.message);
+        else if(msg.message_type==="custom_sticker")loadCustomStickerAsset(msg.message);
+        else if(msg.message_type==="emoji_image")appendRemoteEmoji(msg);
+        else if(msg.message_type==="sticker_image")appendRemoteSticker(msg);
+        else if(msg.message_type==="custom_asset_remove")removeCustomAssetLocal(msg.message);
+        else if(msg.message_type==="system")addSystemMessage(msg.message);
+    });
+}
+
+async function enterRoom(roomName,code){
+    closeModals(); closeProfile(); currentRoomCode=code;
+    document.getElementById("landing").style.display="none";document.getElementById("room").style.display="block";
+    document.getElementById("displayRoomName").textContent=roomName;document.getElementById("roomCodeDisplay").textContent=code;
+    loadLocalProfile();
+    if(profileData.name)currentUserName=profileData.name;
+    const currentUserElement=document.getElementById("currentUser");if(currentUserElement)currentUserElement.textContent=currentUserName;
+    clearChatEmpty(); await loadRoomOwner(); await addMember(); await loadRoomProfiles(); await loadExistingMessages(); await setupRoomRealtime();
+    await publishProfile(); startPresenceHeartbeat();
+    saveRecentRoom(currentRoomCode,roomName,roomOwnerId===sessionUserId);
+    const hostQuality=document.getElementById("hostQualitySelect");if(hostQuality)hostQuality.disabled=roomOwnerId!==sessionUserId;
+    addSystemMessage(currentUserName+" joined the room"); await broadcastSystemJoin();
+    showMediaControls(); showToast("Joined Room ✓");
+    setTimeout(requestCurrentScreenShare,500);
+}
+
+async function leaveRoom(){
+    const leavingCode=currentRoomCode;
+    stopPresenceHeartbeat();
+    if(screenShareStream)await stopScreenShare();
+    clearTimeout(controlsTimer);
+    if(leavingCode){await supabaseClient.from("room_members").delete().eq("room_code",leavingCode).eq("user_id",sessionUserId);}
+    Object.values(peerConnections).forEach(pc=>pc.close());peerConnections={};closeRoomChannel();currentRoomCode="";roomProfiles={};roomMembers=[];
+    document.getElementById("room").style.display="none";document.getElementById("landing").style.display="block";renderRecentRooms();updateProfileUI();showToast("You left the room");
+}
+
+window.addEventListener("pagehide",removePresenceOnExit);
+window.addEventListener("beforeunload",removePresenceOnExit);
+loadLocalProfile();
+
+</script>
 <script>
 
 /* =========================
@@ -2518,20 +2866,9 @@ const COMMON_EMOJIS = [
 function toggleEmojiPicker(event){
     event?.stopPropagation();
     const picker=document.getElementById("emojiPicker");
-    const input=document.getElementById("chatInput");
     if(!picker) return;
-    const opening=!picker.classList.contains("active");
-    if(opening){
-        // The emoji picker acts like a mobile keyboard replacement.
-        // Blur the text input first so the native keyboard closes.
-        if(input && document.activeElement===input) input.blur();
-        document.body.classList.remove("hangout-keyboard-open");
-        picker.classList.add("active");
-        switchEmojiSource("website");
-        renderEmojiPicker();
-    }else{
-        picker.classList.remove("active");
-    }
+    picker.classList.toggle("active");
+    if(picker.classList.contains("active")) renderEmojiPicker();
 }
 
 function switchEmojiTab(tab,event){
@@ -2540,25 +2877,13 @@ function switchEmojiTab(tab,event){
     document.querySelectorAll(".emoji-panel").forEach(panel=>panel.classList.remove("active"));
     const panel=document.getElementById(tab+"Panel");
     if(panel) panel.classList.add("active");
-    if(tab==="emoji") switchEmojiSource("website");
-}
-
-function switchEmojiSource(source,event){
-    event?.stopPropagation();
-    document.querySelectorAll(".emoji-source-tab").forEach(btn=>btn.classList.toggle("active",btn.dataset.source===source));
-    document.querySelectorAll(".emoji-source-panel").forEach(panel=>panel.classList.remove("active"));
-    const panel=document.getElementById(source+"EmojiPanel");
-    if(panel) panel.classList.add("active");
-    if(source==="website") renderCustomEmojis();
-    if(source==="default") renderStandardEmojis();
+    if(tab==="emoji") renderEmojiPicker();
 }
 
 function renderEmojiPicker(){
-    // Website Emoji is intentionally the first/default source.
-    // Default system emojis only appear after the user explicitly selects that option.
+    renderStandardEmojis();
     renderCustomEmojis();
     renderCustomStickers();
-    updateWebsiteEmojiEmpty();
 }
 
 function renderStandardEmojis(){
@@ -2581,8 +2906,7 @@ function sendTextEmoji(emoji){
     const start=input.selectionStart ?? input.value.length;
     const end=input.selectionEnd ?? input.value.length;
     input.value=input.value.slice(0,start)+emoji+input.value.slice(end);
-    // Do not reopen the native keyboard. The user can tap the message box
-    // whenever they want to switch back to typing.
+    input.focus();
     input.setSelectionRange(start+emoji.length,start+emoji.length);
 }
 
@@ -2611,12 +2935,6 @@ function renderCustomEmojis(){
         }
         grid.appendChild(card);
     });
-    updateWebsiteEmojiEmpty();
-}
-
-function updateWebsiteEmojiEmpty(){
-    const empty=document.getElementById("websiteEmojiEmpty");
-    if(empty) empty.style.display=customEmojiAssets.length ? "none" : "block";
 }
 
 function renderCustomStickers(){
@@ -2842,7 +3160,6 @@ function loadCustomEmojiAsset(raw){
     if(customEmojiAssets.some(x=>x.id===asset.id)) return;
     customEmojiAssets.push(asset);
     renderCustomEmojis();
-    updateWebsiteEmojiEmpty();
 }
 
 function fileToDataURL(file,maxSize,quality=.78){
@@ -2982,11 +3299,7 @@ function setupMobileKeyboardViewport(){
         },180);
     };
 
-    input.addEventListener("focus",()=>{
-        // Tapping the message box switches from the emoji panel back to the native keyboard.
-        document.getElementById("emojiPicker")?.classList.remove("active");
-        openKeyboardMode();
-    });
+    input.addEventListener("focus",openKeyboardMode);
     input.addEventListener("blur",closeKeyboardMode);
     if(window.visualViewport){
         visualViewport.addEventListener("resize",positionInputAboveKeyboard);
