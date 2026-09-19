@@ -6004,6 +6004,13 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
   };
   window.requestCurrentScreenShare=requestHost;
 
+  /* Hard-disable legacy screen-share entry points. Chat/realtime stays intact,
+     but no older WebRTC function is allowed to create competing peers. */
+  window.createOfferFor=async()=>{};
+  window.handleSignalMessage=async()=>{};
+  window.hoCreatePeer=async()=>null;
+  window.hoCreateOfferFor=async()=>{};
+  window.hoHandleSignal=async()=>{};
   /* Old implementations are left in the historical source only; they are
      not allowed to handle signaling anymore. */
   try{hoHandleSignal=async()=>{};}catch{}
