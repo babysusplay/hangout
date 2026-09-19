@@ -2171,6 +2171,7 @@ async function leaveRoom(){
 
 window.addEventListener("pagehide",removePresenceOnExit);
 window.addEventListener("beforeunload",removePresenceOnExit);
+loadLocalProfile();
 
 </script>
 <script>
@@ -3657,7 +3658,673 @@ if(urlRoom){
 
 }
 
-if(typeof loadLocalProfile === "function") loadLocalProfile();
+
+/* =========================
+   FINAL STABILITY FIXES
+   Presence + identity colors + late screen-share recovery
+========================= */
+
+function _hoNameColor(userId){
+    return getNameColor(userId || "");
+}
+
+function _hoIdentity(userId,name){
+    const p=(typeof roomProfiles!=="undefined" ? roomProfiles[userId] : null);
+    return {
+        name:p?.name || name || "Unknown",
+        avatar:p?.avatar || "",
+        color:p?.color || _hoNameColor(userId)
+    };
+}
+
+function _hoMessageShell(name,userId){
+    const identity=_hoIdentity(userId,name);
+    const message=document.createElement("div");
+    message.className="message";
+    message.dataset.userId=userId||"";
+    message.dataset.fallbackName=name||"";
+
+    const avatar=document.createElement("div");
+    avatar.className="avatar";
+    avatar.style.background=identity.color;
+    if(identity.avatar){
+        const img=document.createElement("img");
+        img.className="message-avatar-img";
+        img.src=identity.avatar;
+        img.alt="";
+        avatar.appendChild(img);
+    }else{
+        avatar.textContent=(identity.name||"?").charAt(0).toUpperCase();
+    }
+
+    const content=document.createElement("div");
+    content.className="message-content";
+    const top=document.createElement("div");
+    top.className="message-top";
+    const who=document.createElement("span");
+    who.className="message-name";
+    who.textContent=identity.name;
+    who.style.color=identity.color;
+    const time=document.createElement("span");
+    time.className="message-time";
+    time.textContent="now";
+    top.append(who,time);
+    content.appendChild(top);
+    message.append(avatar,content);
+    return {message,content};
+}
+
+function appendChatMessage(name,text,isGif=false,userId=""){
+    const messages=document.getElementById("messages");
+    if(!messages)return;
+    clearChatEmpty();
+    const shell=_hoMessageShell(name,userId);
+    const body=document.createElement("div");
+    body.className=isGif ? "gif-message" : "message-text";
+    body.textContent=text;
+    shell.content.appendChild(body);
+    messages.appendChild(shell.message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function appendGifMessage(name,url,preview,userId=""){
+    if(!url)return;
+    const messages=document.getElementById("messages");
+    if(!messages)return;
+    clearChatEmpty();
+    const shell=_hoMessageShell(name,userId);
+    const img=document.createElement("img");
+    img.className="gif-message-img";
+    img.src=preview||url;
+    img.alt="GIF";
+    img.loading="lazy";
+    img.onclick=e=>{e.stopPropagation();openImageLightbox(url);};
+    shell.content.appendChild(img);
+    messages.appendChild(shell.message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function appendImageMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return;
+    const messages=document.getElementById("messages");
+    if(!messages)return;
+    clearChatEmpty();
+    const shell=_hoMessageShell(name,userId);
+    const img=document.createElement("img");
+    img.className="chat-image-message";
+    img.src=src;
+    img.alt="Chat image";
+    img.loading="lazy";
+    img.onclick=e=>{e.stopPropagation();openImageLightbox(src);};
+    shell.content.appendChild(img);
+    messages.appendChild(shell.message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function appendEmojiMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return;
+    const messages=document.getElementById("messages");
+    if(!messages)return;
+    clearChatEmpty();
+    const shell=_hoMessageShell(name,userId);
+    const img=document.createElement("img");
+    img.className="custom-emoji-img";
+    img.style.width="48px";
+    img.style.height="48px";
+    img.src=src;
+    img.alt="Custom emoji";
+    shell.content.appendChild(img);
+    messages.appendChild(shell.message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function appendStickerMessage(name,src,userId=""){
+    if(!src || !/^data:image\//i.test(src))return;
+    const messages=document.getElementById("messages");
+    if(!messages)return;
+    clearChatEmpty();
+    const shell=_hoMessageShell(name,userId);
+    const img=document.createElement("img");
+    img.className="chat-sticker-message";
+    img.src=src;
+    img.alt="Custom sticker";
+    img.onclick=e=>{e.stopPropagation();openImageLightbox(src);};
+    shell.content.appendChild(img);
+    messages.appendChild(shell.message);
+    messages.scrollTop=messages.scrollHeight;
+}
+
+function appendRemoteMessage(msg){appendChatMessage(msg.user_name,msg.message,false,msg.user_id);}
+function appendRemoteGif(msg){
+    let d;try{d=JSON.parse(msg.message);}catch{d={url:msg.message};}
+    appendGifMessage(msg.user_name,d?.url,d?.preview,msg.user_id);
+}
+function appendRemoteImage(msg){
+    let d;try{d=JSON.parse(msg.message);}catch{return;}
+    appendImageMessage(msg.user_name,d?.src,msg.user_id);
+}
+function appendRemoteEmoji(msg){
+    let d;try{d=JSON.parse(msg.message);}catch{return;}
+    appendEmojiMessage(msg.user_name,d?.src,msg.user_id);
+}
+function appendRemoteSticker(msg){
+    let d;try{d=JSON.parse(msg.message);}catch{return;}
+    appendStickerMessage(msg.user_name,d?.src,msg.user_id);
+}
+
+function renderMembers(){
+    const panel=document.getElementById("peoplePanel");
+    if(!panel)return;
+    panel.innerHTML='<div class="people-title">People in this room</div>';
+    (roomMembers||[]).forEach(member=>{
+        const identity=_hoIdentity(member.user_id,member.user_name);
+        const row=document.createElement("div");
+        row.style.cssText="display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;";
+        const avatar=document.createElement("div");
+        avatar.className="avatar";
+        avatar.style.cssText="width:28px;height:28px;flex:0 0 28px;background:"+identity.color+";";
+        if(identity.avatar){
+            const img=document.createElement("img");
+            img.className="message-avatar-img";
+            img.src=identity.avatar;
+            img.alt="";
+            avatar.appendChild(img);
+        }else avatar.textContent=(identity.name||"?").charAt(0).toUpperCase();
+        const span=document.createElement("span");
+        span.textContent=identity.name+(member.user_id===sessionUserId?" (You)":"")+(member.user_id===roomOwnerId?" 👑":"");
+        span.style.color=identity.color;
+        row.append(avatar,span);
+        if(roomOwnerId===sessionUserId && member.user_id!==sessionUserId){
+            const kick=document.createElement("button");
+            kick.className="kick-btn";
+            kick.textContent="Kick";
+            kick.onclick=()=>kickMember(member.user_id,member.user_name);
+            row.appendChild(kick);
+        }
+        panel.appendChild(row);
+    });
+    const count=document.getElementById("memberCount");
+    if(count)count.textContent=String((roomMembers||[]).length);
+}
+
+async function pruneStaleMembers(){
+    if(!currentRoomCode)return;
+    try{
+        const cutoff=new Date(Date.now()-PRESENCE_STALE_MS).toISOString();
+        await supabaseClient.from("room_members").delete()
+            .eq("room_code",currentRoomCode)
+            .lt("joined_at",cutoff);
+    }catch(e){console.warn("Presence cleanup failed",e);}
+}
+
+async function loadMembers(){
+    await pruneStaleMembers();
+    const {data,error}=await supabaseClient.from("room_members")
+        .select("user_id,user_name,joined_at")
+        .eq("room_code",currentRoomCode)
+        .order("joined_at",{ascending:true});
+    if(error)throw error;
+    roomMembers=data||[];
+    renderMembers();
+}
+
+async function heartbeatPresence(){
+    if(!currentRoomCode)return;
+    try{
+        await supabaseClient.from("room_members").update({
+            joined_at:new Date().toISOString(),
+            user_name:currentUserName
+        }).eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
+        await pruneStaleMembers();
+        await loadMembers();
+    }catch(e){console.warn("Presence heartbeat failed",e);}
+}
+
+function startPresenceHeartbeat(){
+    stopPresenceHeartbeat();
+    heartbeatPresence();
+    presenceTimer=setInterval(heartbeatPresence,PRESENCE_HEARTBEAT_MS);
+}
+function stopPresenceHeartbeat(){
+    if(presenceTimer){clearInterval(presenceTimer);presenceTimer=null;}
+}
+function removePresenceOnExit(){
+    const code=currentRoomCode;
+    if(!code)return;
+    try{
+        const url=SUPABASE_URL+"/rest/v1/room_members?room_code=eq."+encodeURIComponent(code)+"&user_id=eq."+encodeURIComponent(sessionUserId);
+        fetch(url,{
+            method:"DELETE",
+            headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:"Bearer "+SUPABASE_PUBLISHABLE_KEY},
+            keepalive:true
+        }).catch(()=>{});
+    }catch{}
+}
+
+function refreshRenderedIdentities(userId){
+    const selector='.message[data-user-id="'+CSS.escape(String(userId))+'"]';
+    document.querySelectorAll(selector).forEach(message=>{
+        const identity=_hoIdentity(userId,message.dataset.fallbackName||"");
+        const who=message.querySelector(".message-name");
+        if(who){who.textContent=identity.name;who.style.color=identity.color;}
+        const avatar=message.querySelector(".avatar");
+        if(avatar){
+            avatar.style.background=identity.color;
+            avatar.innerHTML="";
+            if(identity.avatar){
+                const img=document.createElement("img");
+                img.className="message-avatar-img";
+                img.src=identity.avatar;
+                img.alt="";
+                avatar.appendChild(img);
+            }else avatar.textContent=(identity.name||"?").charAt(0).toUpperCase();
+        }
+    });
+}
+
+/* Keep profile functions available to inline HTML handlers. */
+window.openProfile=openProfile;
+window.closeProfile=closeProfile;
+window.handleProfileImage=handleProfileImage;
+window.saveProfile=saveProfile;
+
+/* -------------------------
+   WebRTC late-join recovery
+------------------------- */
+const _pendingIceByPeer={};
+
+function rtcConfig(){
+    return {
+        iceServers:[
+            {urls:"stun:stun.l.google.com:19302"},
+            {urls:"stun:stun1.l.google.com:19302"}
+        ],
+        bundlePolicy:"max-bundle"
+    };
+}
+
+function makePeer(userId){
+    if(peerConnections[userId])return peerConnections[userId];
+    const pc=new RTCPeerConnection(rtcConfig());
+    peerConnections[userId]=pc;
+    _pendingIceByPeer[userId]=_pendingIceByPeer[userId]||[];
+
+    if(screenShareStream && isScreenShareHost){
+        screenShareStream.getTracks().forEach(track=>{
+            try{pc.addTrack(track,screenShareStream);}catch(e){console.warn(e);}
+        });
+    }
+
+    pc.onicecandidate=e=>{
+        if(e.candidate){
+            broadcastSignal({
+                type:"ice",
+                from:sessionUserId,
+                to:userId,
+                candidate:e.candidate
+            });
+        }
+    };
+
+    pc.ontrack=e=>{
+        if(isScreenShareHost)return;
+        const stream=e.streams?.[0]||new MediaStream([e.track]);
+        const video=document.getElementById("screenShareVideo");
+        const audio=document.getElementById("remoteShareAudio");
+
+        if(e.track?.kind==="video" && video){
+            video.srcObject=stream;
+            video.muted=true;
+            video.playsInline=true;
+            video.autoplay=true;
+            video.play().catch(()=>{});
+        }
+        if(e.track?.kind==="audio" && audio){
+            audio.srcObject=stream;
+            audio.muted=false;
+            audio.volume=1;
+            audio.autoplay=true;
+            audio.play().catch(()=>{});
+        }
+
+        document.querySelector(".media-card")?.classList.add("sharing");
+        screenShareOwnerId=userId;
+    };
+
+    pc.onconnectionstatechange=()=>{
+        if(pc.connectionState==="connected"){
+            const video=document.getElementById("screenShareVideo");
+            const audio=document.getElementById("remoteShareAudio");
+            video?.play?.().catch(()=>{});
+            audio?.play?.().catch(()=>{});
+        }
+        if(["failed","closed"].includes(pc.connectionState)){
+            pc.close();
+            if(peerConnections[userId]===pc)delete peerConnections[userId];
+        }
+    };
+    return pc;
+}
+
+async function flushPendingIce(userId){
+    const pc=peerConnections[userId];
+    if(!pc || !pc.remoteDescription)return;
+    const queue=_pendingIceByPeer[userId]||[];
+    _pendingIceByPeer[userId]=[];
+    for(const candidate of queue){
+        try{await pc.addIceCandidate(candidate);}catch(e){console.warn("ICE add failed",e);}
+    }
+}
+
+async function createOfferFor(userId){
+    if(!screenShareStream || !isScreenShareHost || !userId || userId===sessionUserId)return;
+    if(peerConnections[userId]){
+        try{peerConnections[userId].close();}catch{}
+        delete peerConnections[userId];
+    }
+    const pc=makePeer(userId);
+    try{
+        await applyQualityToPeer(userId,"source");
+        const offer=await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await broadcastSignal({
+            type:"offer",
+            from:sessionUserId,
+            to:userId,
+            description:pc.localDescription
+        });
+    }catch(e){console.error("Offer creation failed",e);}
+}
+
+async function handleSignalMessage(msg){
+    let signal;
+    try{signal=JSON.parse(msg.message);}catch{return;}
+    if(!signal)return;
+    if(signal.to && signal.to!==sessionUserId)return;
+
+    if(signal.type==="screen-share-request"){
+        if(isScreenShareHost && signal.from!==sessionUserId){
+            await createOfferFor(signal.from);
+        }
+        return;
+    }
+
+    if(signal.type==="screen-share-start"){
+        screenShareOwnerId=signal.from;
+        if(!isScreenShareHost)requestCurrentScreenShare();
+        return;
+    }
+
+    if(signal.type==="screen-share-stop"){
+        if(!isScreenShareHost){
+            document.getElementById("screenShareVideo")?.removeAttribute("src");
+            const video=document.getElementById("screenShareVideo");
+            const audio=document.getElementById("remoteShareAudio");
+            if(video)video.srcObject=null;
+            if(audio){audio.pause?.();audio.srcObject=null;}
+            document.querySelector(".media-card")?.classList.remove("sharing");
+        }
+        Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
+        peerConnections={};
+        screenShareOwnerId=null;
+        return;
+    }
+
+    if(signal.type==="quality-request"){
+        if(isScreenShareHost && signal.from){
+            await applyQualityToPeer(signal.from,signal.quality||"source");
+        }
+        return;
+    }
+
+    if(signal.type==="offer"){
+        const old=peerConnections[signal.from];
+        if(old){try{old.close();}catch{};delete peerConnections[signal.from];}
+        const pc=makePeer(signal.from);
+        try{
+            await pc.setRemoteDescription(signal.description);
+            await flushPendingIce(signal.from);
+            const answer=await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await broadcastSignal({
+                type:"answer",
+                from:sessionUserId,
+                to:signal.from,
+                description:pc.localDescription
+            });
+        }catch(e){console.error("Offer handling failed",e);}
+        return;
+    }
+
+    if(signal.type==="answer"){
+        const pc=peerConnections[signal.from];
+        if(!pc)return;
+        try{
+            await pc.setRemoteDescription(signal.description);
+            await flushPendingIce(signal.from);
+        }catch(e){console.error("Answer handling failed",e);}
+        return;
+    }
+
+    if(signal.type==="ice"){
+        if(!signal.candidate)return;
+        const pc=peerConnections[signal.from];
+        if(!pc || !pc.remoteDescription){
+            (_pendingIceByPeer[signal.from]||(_pendingIceByPeer[signal.from]=[])).push(signal.candidate);
+            return;
+        }
+        try{await pc.addIceCandidate(signal.candidate);}catch(e){console.warn("ICE add failed",e);}
+    }
+}
+
+async function requestCurrentScreenShare(){
+    if(!currentRoomCode || isScreenShareHost)return;
+    await broadcastSignal({
+        type:"screen-share-request",
+        from:sessionUserId,
+        to:"room"
+    });
+}
+
+/* Re-define realtime setup so the late joiner explicitly requests
+   an already-active share after the channel is fully subscribed. */
+async function setupRoomRealtime(){
+    closeRoomChannel();
+    await loadMembers();
+
+    roomChannel=supabaseClient.channel("hangout-room-"+currentRoomCode,{
+        config:{broadcast:{self:false}}
+    });
+
+    roomChannel
+      .on("postgres_changes",{
+          event:"INSERT",schema:"public",table:"room_messages",
+          filter:"room_code=eq."+currentRoomCode
+      },payload=>{
+          const msg=payload.new;
+          if(msg.user_id===sessionUserId)return;
+          if(msg.message_type==="profile"){loadProfileMessage(msg.message);return;}
+          if(msg.message_type==="text")appendRemoteMessage(msg);
+          else if(msg.message_type==="gif")appendRemoteGif(msg);
+          else if(msg.message_type==="image")appendRemoteImage(msg);
+          else if(msg.message_type==="custom_emoji")loadCustomEmojiAsset(msg.message);
+          else if(msg.message_type==="custom_sticker")loadCustomStickerAsset(msg.message);
+          else if(msg.message_type==="emoji_image")appendRemoteEmoji(msg);
+          else if(msg.message_type==="sticker_image")appendRemoteSticker(msg);
+          else if(msg.message_type==="custom_asset_remove")removeCustomAssetLocal(msg.message);
+          else if(msg.message_type==="system")addSystemMessage(msg.message);
+          else if(msg.message_type==="signal")handleSignalMessage(msg);
+      })
+      .on("postgres_changes",{
+          event:"*",schema:"public",table:"room_members",
+          filter:"room_code=eq."+currentRoomCode
+      },async()=>{
+          try{
+              await loadMembers();
+              if(isScreenShareHost){
+                  for(const member of roomMembers){
+                      if(member.user_id!==sessionUserId && !peerConnections[member.user_id]){
+                          await createOfferFor(member.user_id);
+                      }
+                  }
+              }
+          }catch(e){console.error(e);}
+      })
+      .subscribe(async status=>{
+          if(status==="SUBSCRIBED"){
+              showToast("Room connected ✓");
+              if(!isScreenShareHost){
+                  setTimeout(()=>requestCurrentScreenShare(),250);
+                  setTimeout(()=>requestCurrentScreenShare(),1500);
+              }
+          }
+      });
+}
+
+async function enterRoom(roomName,code){
+    closeModals();
+    currentRoomCode=code;
+    document.getElementById("landing").style.display="none";
+    document.getElementById("room").style.display="block";
+    document.getElementById("displayRoomName").textContent=roomName;
+    document.getElementById("roomCodeDisplay").textContent=code;
+    clearChatEmpty();
+
+    await loadRoomOwner();
+    await addMember();
+    await loadRoomProfiles();
+    await loadExistingMessages();
+    await setupRoomRealtime();
+
+    saveRecentRoom(currentRoomCode,roomName,roomOwnerId===sessionUserId);
+    const hostQuality=document.getElementById("hostQualitySelect");
+    if(hostQuality)hostQuality.disabled=roomOwnerId!==sessionUserId;
+
+    addSystemMessage(currentUserName+" joined the room");
+    await broadcastSystemJoin();
+    startPresenceHeartbeat();
+    showMediaControls();
+
+    /* Explicit late-join request after everything is ready. */
+    if(!isScreenShareHost){
+        setTimeout(()=>requestCurrentScreenShare(),300);
+        setTimeout(()=>requestCurrentScreenShare(),1800);
+    }
+
+    showToast("Joined Room ✓");
+}
+
+async function leaveRoom(){
+    stopPresenceHeartbeat();
+    if(screenShareStream)await stopScreenShare();
+    clearTimeout(controlsTimer);
+    if(currentRoomCode){
+        try{
+            await supabaseClient.from("room_members").delete()
+                .eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
+        }catch(e){console.warn(e);}
+    }
+    Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
+    peerConnections={};
+    closeRoomChannel();
+    currentRoomCode="";
+    document.getElementById("room").style.display="none";
+    document.getElementById("landing").style.display="block";
+    renderRecentRooms();
+    showToast("You left the room");
+}
+
+/* Make the screen-share start/stop path explicitly notify and
+   re-negotiate all current members. */
+async function startScreenShare(){
+    if(!navigator.mediaDevices?.getDisplayMedia){
+        showToast("Screen sharing is not supported here");
+        return;
+    }
+    try{
+        screenShareStream=await navigator.mediaDevices.getDisplayMedia({
+            video:{
+                frameRate:{ideal:30,max:30},
+                width:{ideal:1920,max:1920},
+                height:{ideal:1080,max:1080}
+            },
+            audio:{
+                echoCancellation:false,
+                noiseSuppression:false,
+                autoGainControl:false
+            }
+        });
+
+        const video=document.getElementById("screenShareVideo");
+        const card=document.querySelector(".media-card");
+        if(video){
+            video.srcObject=screenShareStream;
+            video.muted=true;
+            video.volume=0;
+            video.autoplay=true;
+            video.playsInline=true;
+            video.play().catch(()=>{});
+        }
+        card?.classList.add("sharing");
+        isScreenShareHost=true;
+        screenShareOwnerId=sessionUserId;
+        updateShareButton();
+        showMediaControls();
+
+        await broadcastSignal({type:"screen-share-start",from:sessionUserId});
+
+        for(const member of roomMembers||[]){
+            if(member.user_id!==sessionUserId){
+                await createOfferFor(member.user_id);
+            }
+        }
+
+        const videoTrack=screenShareStream.getVideoTracks()[0];
+        if(videoTrack){
+            try{videoTrack.contentHint="detail";}catch{}
+            videoTrack.addEventListener("ended",stopScreenShare,{once:true});
+        }
+        if(!screenShareStream.getAudioTracks().length){
+            showToast("System audio was not included by your browser/share picker");
+        }else{
+            showToast("Screen sharing started 🖥️");
+        }
+    }catch(error){
+        console.error(error);
+        screenShareStream=null;
+        isScreenShareHost=false;
+        screenShareOwnerId=null;
+        updateShareButton();
+        showToast("Screen sharing cancelled");
+    }
+}
+
+async function stopScreenShare(){
+    if(screenShareStream)screenShareStream.getTracks().forEach(track=>track.stop());
+    screenShareStream=null;
+    isScreenShareHost=false;
+    screenShareOwnerId=null;
+
+    const video=document.getElementById("screenShareVideo");
+    const audio=document.getElementById("remoteShareAudio");
+    const card=document.querySelector(".media-card");
+    if(video){video.srcObject=null;video.muted=true;video.volume=0;}
+    if(audio){audio.pause?.();audio.srcObject=null;}
+    card?.classList.remove("sharing");
+
+    Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
+    peerConnections={};
+    for(const k in _pendingIceByPeer)delete _pendingIceByPeer[k];
+
+    document.getElementById("shareSettings")?.classList.remove("show");
+    updateShareButton();
+    await broadcastSignal({type:"screen-share-stop",from:sessionUserId});
+    showMediaControls();
+    showToast("Screen sharing stopped");
+}
+
+/* Start the profile/presence UI immediately and expose handlers globally. */
+try{loadLocalProfile();}catch(e){console.warn("Profile init failed",e);}
 
 </script>
 
