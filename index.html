@@ -5543,94 +5543,59 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
 \n
 <script>
 /* =========================================================
-   SCREEN SHARE — SINGLE CLEAN WEBRTC ENGINE
-   This is the only active screen-share implementation.
+   SCREEN SHARE — ROBUST SINGLE WEBRTC ENGINE
+   One signaling path, adaptive codec negotiation, ICE recovery,
+   late-join recovery and receiver-side black-screen detection.
 ========================================================= */
 (function(){
   const S = {
-    channel:null,
     room:null,
-    subscribed:false,
+    ready:false,
     stream:null,
     host:false,
     peers:new Map(),
-    retryTimer:null,
-    discoveryTimer:null
+    pollTimer:null,
+    discoveryTimer:null,
+    statsTimer:null,
+    lastSignalId:0,
+    retrying:new Set()
   };
 
-  const getVideo=()=>document.getElementById("screenShareVideo");
-  const getAudio=()=>document.getElementById("remoteShareAudio");
-  const getCard=()=>document.querySelector(".media-card");
+  const video=()=>document.getElementById("screenShareVideo");
+  const audio=()=>document.getElementById("remoteShareAudio");
+  const card=()=>document.querySelector(".media-card");
 
-  function setUI(live){
-    getCard()?.classList.toggle("sharing",!!live);
-    const v=getVideo();
-    if(v) v.style.display=live ? "block" : "none";
+  function ui(live){
+    card()?.classList.toggle("sharing",!!live);
+    const v=video();
+    if(v)v.style.display=live?"block":"none";
   }
 
   function closePeer(id){
     const pc=S.peers.get(id);
-    if(pc){ try{pc.ontrack=null; pc.close();}catch{} }
+    if(pc){try{pc.ontrack=null;pc.close();}catch{}}
     S.peers.delete(id);
   }
 
-  function closeAllPeers(){
-    for(const id of Array.from(S.peers.keys())) closePeer(id);
-  }
-
-  function preferVideoCodec(pc){
-    try{
-      const caps=RTCRtpReceiver.getCapabilities?.("video");
-      if(!caps?.codecs)return;
-      const codecs=[...caps.codecs];
-      const order={"video/VP8":0,"video/H264":1,"video/VP9":2};
-      codecs.sort((a,b)=>(order[a.mimeType]??99)-(order[b.mimeType]??99));
-      for(const tr of pc.getTransceivers()){
-        if(tr.receiver?.track?.kind==="video" || tr.sender?.track?.kind==="video"){
-          if(typeof tr.setCodecPreferences==="function") tr.setCodecPreferences(codecs);
-        }
-      }
-    }catch(e){console.warn("Codec preference unavailable:",e);}
-  }
-
-  function limitVideoSender(pc){
-    try{
-      for(const sender of pc.getSenders()){
-        if(sender.track?.kind!=="video")continue;
-        const p=sender.getParameters();
-        p.encodings=p.encodings?.length?p.encodings:[{}];
-        p.encodings[0].maxBitrate=2200000;
-        p.encodings[0].maxFramerate=24;
-        sender.setParameters(p).catch(()=>{});
-      }
-    }catch(e){console.warn("Video sender limits unavailable:",e);}
+  function closeAll(){
+    for(const id of Array.from(S.peers.keys()))closePeer(id);
   }
 
   function rtc(){
     return new RTCPeerConnection({
+      iceServers:[
         {urls:"stun:stun.l.google.com:19302"},
         {urls:"stun:stun1.l.google.com:19302"},
-        {
-          urls:"turn:openrelay.metered.ca:80",
-          username:"openrelayproject",
-          credential:"openrelayproject"
-        },
-        {
-          urls:"turn:openrelay.metered.ca:443",
-          username:"openrelayproject",
-          credential:"openrelayproject"
-        },
-        {
-          urls:"turns:openrelay.metered.ca:443?transport=tcp",
-          username:"openrelayproject",
-          credential:"openrelayproject"
-        }
-      ]
+        {urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},
+        {urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},
+        {urls:"turns:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}
+      ],
+      iceCandidatePoolSize:4
     });
   }
 
   function waitIce(pc){
-    if(pc.iceGatheringState==="complete") return Promise.resolve();
+    if(pc.iceGatheringState==="complete")return Promise.resolve();
     return new Promise(resolve=>{
       let done=false;
       const finish=()=>{
@@ -5646,227 +5611,123 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
     });
   }
 
-  let lastSignalId=0;
-  let signalPollTimer=null;
+  function setCodecPreferences(pc,preferred){
+    try{
+      const caps=RTCRtpReceiver.getCapabilities?.("video");
+      if(!caps?.codecs)return;
+      const order=preferred==="VP8"
+        ? ["video/VP8","video/H264","video/VP9"]
+        : ["video/H264","video/VP8","video/VP9"];
+      const codecs=[...caps.codecs].sort((a,b)=>{
+        const ai=order.indexOf(a.mimeType),bi=order.indexOf(b.mimeType);
+        return (ai<0?99:ai)-(bi<0?99:bi);
+      });
+      for(const tr of pc.getTransceivers()){
+        if(tr.sender?.track?.kind==="video" || tr.receiver?.track?.kind==="video"){
+          if(typeof tr.setCodecPreferences==="function")tr.setCodecPreferences(codecs);
+        }
+      }
+    }catch(e){console.warn("Codec preference unavailable",e);}
+  }
+
+  function limitSender(pc){
+    try{
+      for(const sender of pc.getSenders()){
+        if(sender.track?.kind!=="video")continue;
+        const p=sender.getParameters();
+        p.encodings=p.encodings?.length?p.encodings:[{}];
+        p.encodings[0].maxBitrate=2500000;
+        p.encodings[0].maxFramerate=30;
+        sender.setParameters(p).catch(()=>{});
+      }
+    }catch(e){console.warn("Sender limit unavailable",e);}
+  }
 
   async function send(payload){
-    if(!currentRoomCode)return false;
+    if(!currentRoomCode||!supabaseClient)return false;
     try{
-      const row={
+      const {error}=await supabaseClient.from("room_messages").insert({
         room_code:currentRoomCode,
         user_id:sessionUserId,
         user_name:currentUserName||"User",
         message:JSON.stringify(payload),
         message_type:"signal"
-      };
-      const {error}=await supabaseClient.from("room_messages").insert(row);
-      if(error){
-        console.error("Screen-share DB signaling failed:",error);
-        return false;
-      }
+      });
+      if(error)throw error;
       return true;
     }catch(e){
-      console.error("Screen-share signaling exception:",e);
+      console.warn("Screen-share signal send failed",e);
       return false;
     }
   }
 
-  async function pollSignals(){
-    if(!currentRoomCode)return;
+  async function poll(){
+    if(!currentRoomCode||!S.ready)return;
     try{
       const {data,error}=await supabaseClient
         .from("room_messages")
         .select("id,message,user_id")
         .eq("room_code",currentRoomCode)
         .eq("message_type","signal")
-        .gt("id",lastSignalId)
+        .gt("id",S.lastSignalId)
         .order("id",{ascending:true})
-        .limit(50);
-
-      if(error){
-        console.warn("Screen-share signal poll failed:",error);
-        return;
-      }
-
+        .limit(100);
+      if(error)throw error;
       for(const row of (data||[])){
         const id=Number(row.id)||0;
-        if(id>lastSignalId)lastSignalId=id;
+        if(id>S.lastSignalId)S.lastSignalId=id;
         if(row.user_id===sessionUserId)continue;
-        try{
-          const payload=JSON.parse(row.message);
-          await receive(payload);
-        }catch(e){
-          console.warn("Invalid screen-share signal:",e);
-        }
+        try{await receive(JSON.parse(row.message));}catch(e){console.warn("Signal handling failed",e);}
       }
-    }catch(e){
-      console.warn("Screen-share poll exception:",e);
-    }
+    }catch(e){console.warn("Screen-share polling failed",e);}
   }
 
   async function connect(){
-    if(!currentRoomCode || !supabaseClient)return;
-    if(S.room===currentRoomCode && S.subscribed)return;
-
+    if(!currentRoomCode||!supabaseClient)return;
+    if(S.room===currentRoomCode&&S.ready)return;
+    if(S.pollTimer)clearInterval(S.pollTimer);
     S.room=currentRoomCode;
-    S.subscribed=false;
-
+    S.ready=false;
+    S.lastSignalId=0;
     try{
-      const {data,error}=await supabaseClient
-        .from("room_messages")
-        .select("id")
+      const {data}=await supabaseClient
+        .from("room_messages").select("id")
         .eq("room_code",currentRoomCode)
         .eq("message_type","signal")
-        .order("id",{ascending:false})
-        .limit(1);
-
-      if(!error && data?.[0]?.id) lastSignalId=Number(data[0].id);
+        .order("id",{ascending:false}).limit(1);
+      if(data?.[0]?.id)S.lastSignalId=Number(data[0].id);
     }catch{}
-
-    S.subscribed=true;
-
-    if(signalPollTimer)clearInterval(signalPollTimer);
-    await pollSignals();
-    signalPollTimer=setInterval(pollSignals,700);
-
-    if(!S.host)await requestHost();
+    S.ready=true;
+    await poll();
+    S.pollTimer=setInterval(poll,650);
+    if(!S.host)requestHost();
   }
 
-  async function requestHost(){
-    if(!S.subscribed || S.host || !currentRoomCode)return;
-    await send({type:"request",from:sessionUserId});
-  }
-
-  async function announce(){
-    /* DB polling means viewers explicitly request an offer; no broadcast
-       announcement is needed. */
-    return;
-  }
-
-  async function createOffer(viewerId){
-    if(!S.host || !S.stream || !viewerId || viewerId===sessionUserId)return;
-
-    closePeer(viewerId);
-
-    const pc=rtc();
-    S.peers.set(viewerId,pc);
-
-    pc.onconnectionstatechange=()=>{
-      console.log("Screen-share host PC",viewerId,pc.connectionState,pc.iceConnectionState);
-      if(pc.connectionState==="failed"){
-        closePeer(viewerId);
-        setTimeout(()=>createOffer(viewerId).catch(()=>{}),1500);
-      }
-    };
-
-    /* Send both the video and audio tracks in the SAME MediaStream. */
-    for(const track of S.stream.getTracks()){
-      pc.addTrack(track,S.stream);
-    }
-
-    preferVideoCodec(pc);
-    limitVideoSender(pc);
-
-    const offer=await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await waitIce(pc);
-
-    await send({
-      type:"offer",
-      from:sessionUserId,
-      to:viewerId,
-      sdp:{
-        type:pc.localDescription.type,
-        sdp:pc.localDescription.sdp
-      }
-    });
-  }
-
-  async function receiveOffer(data){
-    if(S.host || data.to!==sessionUserId || !data.sdp)return;
-
-    closePeer(data.from);
-
-    const pc=rtc();
-    S.peers.set(data.from,pc);
-
-    const remoteStream=new MediaStream();
-
-    pc.ontrack=event=>{
-      console.log("Screen-share viewer TRACK:",event.track.kind,event.track.readyState);
-      if(event.streams?.[0]){
-        for(const track of event.streams[0].getTracks()){
-          if(!remoteStream.getTracks().includes(track))remoteStream.addTrack(track);
-        }
-      }else if(!remoteStream.getTracks().includes(event.track)){
-        remoteStream.addTrack(event.track);
-      }
-
-      attachRemote(remoteStream);
-    };
-
-    pc.onconnectionstatechange=()=>{
-      console.log("Screen-share viewer PC:",pc.connectionState,pc.iceConnectionState);
-      if(pc.connectionState==="connected") attachRemote(remoteStream);
-      if(pc.connectionState==="failed"){
-        closePeer(data.from);
-        setTimeout(requestHost,1000);
-      }
-    };
-
-    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    preferVideoCodec(pc);
-    const answer=await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitIce(pc);
-
-    await send({
-      type:"answer",
-      from:sessionUserId,
-      to:data.from,
-      sdp:{
-        type:pc.localDescription.type,
-        sdp:pc.localDescription.sdp
-      }
-    });
-  }
-
-  async function receiveAnswer(data){
-    if(!S.host || data.to!==sessionUserId || !data.sdp)return;
-    const pc=S.peers.get(data.from);
-    if(!pc || pc.signalingState!=="have-local-offer")return;
-    try{
-      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    }catch(e){
-      console.error("Screen-share setRemoteDescription(answer) failed:",e);
-    }
+  async function requestHost(codec){
+    if(!S.ready||S.host||!currentRoomCode)return;
+    const now=Date.now();
+    if(S.lastRequest&&now-S.lastRequest<700)return;
+    S.lastRequest=now;
+    await send({type:"request",from:sessionUserId,codec:codec||"H264"});
   }
 
   function attachRemote(stream){
-    const v=getVideo();
+    const v=video();
     if(!v)return;
-
     v.srcObject=stream;
     v.autoplay=true;
     v.playsInline=true;
     v.setAttribute("playsinline","");
     v.setAttribute("webkit-playsinline","");
+    v.muted=true;
     v.controls=false;
     v.preload="auto";
     v.style.display="block";
-    setUI(true);
-
-    /* Muted autoplay guarantees the video itself can render. */
-    v.muted=true;
+    ui(true);
     const play=()=>v.play().catch(()=>{});
-    play();
-    setTimeout(play,100);
-    setTimeout(play,500);
-    setTimeout(play,1500);
+    play();setTimeout(play,150);setTimeout(play,700);setTimeout(play,1600);
 
-    /* The separate audio element is kept for browsers that handle remote
-       audio more reliably that way. */
-    const a=getAudio();
+    const a=audio();
     if(a){
       a.srcObject=stream;
       a.autoplay=true;
@@ -5875,226 +5736,274 @@ if(isScreenShareHost && screenShareStream) hoStartShareRecovery();
       a.muted=false;
       a.play().catch(()=>{});
     }
+  }
 
-    console.log("Screen-share remote stream:",
-      "videoTracks=",stream.getVideoTracks().length,
-      "audioTracks=",stream.getAudioTracks().length);
+  function installViewerStats(pc,from,stream){
+    clearInterval(pc.__hangoutStatsTimer);
+    pc.__hangoutStatsTimer=setInterval(async()=>{
+      if(pc.connectionState==="closed"){clearInterval(pc.__hangoutStatsTimer);return;}
+      try{
+        const stats=await pc.getStats();
+        let inbound=null;
+        stats.forEach(s=>{
+          if(s.type==="inbound-rtp"&&s.kind==="video")inbound=s;
+        });
+        const v=video();
+        const bytes=Number(inbound?.bytesReceived||0);
+        const frames=Number(inbound?.framesDecoded||0);
+        const width=Number(inbound?.frameWidth||v?.videoWidth||0);
+        const height=Number(inbound?.frameHeight||v?.videoHeight||0);
+        if(!pc.__hangoutStatStart){
+          pc.__hangoutStatStart={bytes,frames,at:Date.now()};
+          return;
+        }
+        const age=Date.now()-pc.__hangoutStatStart.at;
+        if(age<3500)return;
+        const gotBytes=bytes>pc.__hangoutStatStart.bytes;
+        const gotFrames=frames>pc.__hangoutStatStart.frames;
+        const rendered=width>0&&height>0&&v?.readyState>=2;
+        if(gotFrames||rendered)return;
+
+        const key=from+":"+((pc.__hangoutRetry||0)+1);
+        if(S.retrying.has(key))return;
+        S.retrying.add(key);
+        pc.__hangoutRetry=(pc.__hangoutRetry||0)+1;
+
+        /* If RTP is arriving but frames are not decoding, change the codec
+           preference on the next offer. Otherwise rebuild the ICE path. */
+        const nextCodec=gotBytes
+          ? ((pc.__hangoutLastCodec||"H264")==="H264"?"VP8":"H264")
+          : (pc.__hangoutLastCodec||"H264");
+        console.warn("Screen-share recovery",{
+          connection:pc.connectionState,ice:pc.iceConnectionState,
+          bytesReceived:bytes,framesDecoded:frames,width,height,
+          nextCodec
+        });
+
+        if(pc.restartIce){
+          try{pc.restartIce();}catch{}
+        }
+        closePeer(from);
+        setTimeout(()=>requestHost(nextCodec),350);
+        setTimeout(()=>S.retrying.delete(key),5000);
+      }catch(e){}
+    },2000);
+  }
+
+  async function createOffer(viewerId,preferred){
+    if(!S.host||!S.stream||!viewerId||viewerId===sessionUserId)return;
+    closePeer(viewerId);
+    const pc=rtc();
+    pc.__hangoutLastCodec=preferred||"H264";
+    S.peers.set(viewerId,pc);
+
+    pc.onconnectionstatechange=()=>{
+      console.log("Screen host",viewerId,pc.connectionState,pc.iceConnectionState);
+      if(pc.connectionState==="failed"||pc.iceConnectionState==="failed"){
+        closePeer(viewerId);
+        setTimeout(()=>createOffer(viewerId,preferred).catch(()=>{}),900);
+      }
+    };
+
+    for(const track of S.stream.getTracks())pc.addTrack(track,S.stream);
+    setCodecPreferences(pc,preferred||"H264");
+    limitSender(pc);
+
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitIce(pc);
+
+    await send({
+      type:"offer",from:sessionUserId,to:viewerId,
+      codec:preferred||"H264",
+      sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
+    });
+  }
+
+  async function receiveOffer(data){
+    if(S.host||data.to!==sessionUserId||!data.sdp)return;
+    closePeer(data.from);
+    const pc=rtc();
+    pc.__hangoutLastCodec=data.codec||"H264";
+    S.peers.set(data.from,pc);
+    const stream=new MediaStream();
+
+    pc.ontrack=e=>{
+      if(e.streams?.[0]){
+        for(const t of e.streams[0].getTracks())if(!stream.getTracks().includes(t))stream.addTrack(t);
+      }else if(!stream.getTracks().includes(e.track))stream.addTrack(e.track);
+      attachRemote(stream);
+    };
+
+    pc.onconnectionstatechange=()=>{
+      console.log("Screen viewer",pc.connectionState,pc.iceConnectionState);
+      if(pc.connectionState==="connected")attachRemote(stream);
+      if(pc.connectionState==="failed"||pc.iceConnectionState==="failed"){
+        closePeer(data.from);
+        setTimeout(()=>requestHost(pc.__hangoutLastCodec==="H264"?"VP8":"H264"),700);
+      }
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    setCodecPreferences(pc,data.codec||"H264");
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitIce(pc);
+
+    await send({
+      type:"answer",from:sessionUserId,to:data.from,codec:data.codec||"H264",
+      sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
+    });
+
+    installViewerStats(pc,data.from,stream);
+  }
+
+  async function receiveAnswer(data){
+    if(!S.host||data.to!==sessionUserId||!data.sdp)return;
+    const pc=S.peers.get(data.from);
+    if(!pc||pc.signalingState!=="have-local-offer")return;
+    try{await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));}
+    catch(e){console.warn("Screen answer failed",e);}
   }
 
   async function receive(data){
-    if(!data || (data.to && data.to!==sessionUserId))return;
-
+    if(!data||(data.to&&data.to!==sessionUserId))return;
     if(data.type==="request"){
-      if(S.host && S.stream && data.from!==sessionUserId){
-        await createOffer(data.from);
-      }
+      if(S.host&&S.stream&&data.from!==sessionUserId)
+        await createOffer(data.from,data.codec==="VP8"?"VP8":"H264");
       return;
     }
-
-    if(data.type==="active"){
-      if(!S.host) await requestHost();
-      return;
-    }
-
-    if(data.type==="offer"){
-      await receiveOffer(data);
-      return;
-    }
-
-    if(data.type==="answer"){
-      await receiveAnswer(data);
-      return;
-    }
-
+    if(data.type==="offer"){await receiveOffer(data);return;}
+    if(data.type==="answer"){await receiveAnswer(data);return;}
     if(data.type==="stop"){
       if(!S.host){
-        closeAllPeers();
-        const v=getVideo(),a=getAudio();
+        closeAll();
+        const v=video(),a=audio();
         if(v){v.pause();v.srcObject=null;}
         if(a){a.pause();a.srcObject=null;}
-        setUI(false);
+        ui(false);
       }
     }
   }
 
   async function start(){
     if(S.stream)return;
-
     try{
       if(!navigator.mediaDevices?.getDisplayMedia){
-        showToast("Screen sharing is not supported in this browser");
-        return;
+        showToast("Screen sharing is not supported in this browser");return;
       }
-
-      /* Keep capture simple and portable. Browser decides whether system
-         audio is available for the selected surface. */
       const stream=await navigator.mediaDevices.getDisplayMedia({
         video:{frameRate:{ideal:30,max:60}},
         audio:true
       });
+      const vt=stream.getVideoTracks()[0];
+      if(!vt)throw new Error("No video track");
 
-      const videoTrack=stream.getVideoTracks()[0];
-      if(!videoTrack){
-        stream.getTracks().forEach(t=>t.stop());
-        throw new Error("No screen video track returned");
-      }
-
-      S.stream=stream;
-      S.host=true;
-      screenShareStream=stream;
-      isScreenShareHost=true;
+      S.stream=stream;S.host=true;
+      screenShareStream=stream;isScreenShareHost=true;
       if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=sessionUserId;
 
-      const v=getVideo();
+      const v=video();
       if(v){
-        v.srcObject=stream;
-        v.autoplay=true;
-        v.playsInline=true;
-        v.muted=true;
-        v.style.display="block";
-        v.play().catch(()=>{});
+        v.srcObject=stream;v.autoplay=true;v.playsInline=true;v.muted=true;
+        v.setAttribute("playsinline","");v.style.display="block";v.play().catch(()=>{});
       }
-      setUI(true);
-
-      videoTrack.addEventListener("ended",()=>stop(),{once:true});
+      ui(true);
+      vt.addEventListener("ended",()=>stop(),{once:true});
 
       await connect();
-      await announce();
 
-      /* Existing viewers get offers immediately. */
       try{
         await loadMembers();
-        for(const member of (roomMembers||[])){
-          if(member.user_id && member.user_id!==sessionUserId){
-            await createOffer(member.user_id);
-          }
+        for(const m of (roomMembers||[])){
+          if(m.user_id&&m.user_id!==sessionUserId)await createOffer(m.user_id,"H264");
         }
-      }catch(e){
-        console.warn("Could not enumerate existing viewers:",e);
-      }
+      }catch(e){console.warn("Viewer enumeration failed",e);}
 
-      /* Late joiners get an offer as soon as they request, plus discovery
-         polling as a fallback. */
       clearInterval(S.discoveryTimer);
       S.discoveryTimer=setInterval(async()=>{
-        if(!S.host || !S.stream || !S.subscribed)return;
+        if(!S.host||!S.stream||!S.ready)return;
         try{
           await loadMembers();
-          await announce();
-          for(const member of (roomMembers||[])){
-            if(member.user_id && member.user_id!==sessionUserId && !S.peers.has(member.user_id)){
-              await createOffer(member.user_id);
-            }
+          for(const m of (roomMembers||[])){
+            if(m.user_id&&m.user_id!==sessionUserId&&!S.peers.has(m.user_id))
+              await createOffer(m.user_id,"H264");
           }
         }catch{}
-      },3000);
+      },2500);
 
       showToast(stream.getAudioTracks().length
-        ? "Screen sharing started ✓"
-        : "Screen sharing started — no system audio was provided by the browser");
+        ?"Screen sharing started ✓"
+        :"Screen sharing started — browser did not provide system audio");
     }catch(e){
-      console.error("Screen-share start failed:",e);
-      S.stream=null;
-      S.host=false;
-      screenShareStream=null;
-      isScreenShareHost=false;
-      setUI(false);
+      console.error("Screen share start failed",e);
+      S.stream=null;S.host=false;screenShareStream=null;isScreenShareHost=false;ui(false);
       if(e?.name!=="AbortError")showToast("Screen sharing failed");
     }
   }
 
   async function stop(){
-    clearInterval(S.discoveryTimer);
-    S.discoveryTimer=null;
-
-    const wasSharing=!!S.stream;
-    if(S.stream){
-      S.stream.getTracks().forEach(t=>{try{t.stop();}catch{}});
-    }
-
-    S.stream=null;
-    S.host=false;
-    screenShareStream=null;
-    isScreenShareHost=false;
+    clearInterval(S.discoveryTimer);S.discoveryTimer=null;
+    for(const pc of S.peers.values())clearInterval(pc.__hangoutStatsTimer);
+    const active=!!S.stream;
+    if(S.stream)S.stream.getTracks().forEach(t=>{try{t.stop();}catch{}});
+    S.stream=null;S.host=false;screenShareStream=null;isScreenShareHost=false;
     if(typeof screenShareOwnerId!=="undefined")screenShareOwnerId=null;
-
-    closeAllPeers();
-
-    const v=getVideo(),a=getAudio();
+    closeAll();
+    const v=video(),a=audio();
     if(v){v.pause();v.srcObject=null;}
     if(a){a.pause();a.srcObject=null;}
-    setUI(false);
-
-    if(wasSharing && S.subscribed)await send({type:"stop",from:sessionUserId});
-    if(wasSharing)showToast("Screen sharing stopped");
+    ui(false);
+    if(active&&S.ready)await send({type:"stop",from:sessionUserId});
+    if(active)showToast("Screen sharing stopped");
   }
 
   window.startScreenShare=start;
   window.stopScreenShare=stop;
-  window.toggleScreenShare=async function(e){
+  window.toggleScreenShare=async e=>{
     e?.stopPropagation();
-    if(S.stream)await stop();
-    else await start();
+    if(S.stream)await stop();else await start();
   };
-  window.requestCurrentScreenShare=requestHost;
+  window.requestCurrentScreenShare=()=>requestHost();
 
-  /* Hard-disable legacy screen-share entry points. Chat/realtime stays intact,
-     but no older WebRTC function is allowed to create competing peers. */
+  /* Disable every older screen-share entry point so two WebRTC engines
+     cannot compete for the same room. */
   window.createOfferFor=async()=>{};
   window.handleSignalMessage=async()=>{};
   window.hoCreatePeer=async()=>null;
   window.hoCreateOfferFor=async()=>{};
   window.hoHandleSignal=async()=>{};
-  /* Old implementations are left in the historical source only; they are
-     not allowed to handle signaling anymore. */
+  window.broadcastSignal=async()=>false;
   try{hoHandleSignal=async()=>{};}catch{}
   try{hoSendSignal=async()=>false;}catch{}
-  window.broadcastSignal=async()=>false;
 
-  /* Existing room setup continues to handle chat. We only add our dedicated
-     screen-share channel after the room is ready. */
-  const oldSetup=window.setupRoomRealtime;
-  window.setupRoomRealtime=async function(){
-    if(oldSetup)await oldSetup();
-    await connect();
-    if(!S.host){
-      [500,2000,5000].forEach(ms=>setTimeout(requestHost,ms));
-    }
-  };
-
-  /* A real user click is enough to retry both video and audible playback. */
-  document.addEventListener("click",()=>{
-    const v=getVideo(),a=getAudio();
+  /* User interaction is a valid moment to retry audible playback. */
+  const resumeMedia=()=>{
+    const v=video(),a=audio();
     if(v?.srcObject){
       v.play().catch(()=>{});
-      /* Unmute only after user interaction, avoiding autoplay blocking. */
       v.muted=false;
       v.play().catch(()=>{});
     }
-    if(a?.srcObject)a.play().catch(()=>{});
-  },{passive:true});
+    if(a?.srcObject){a.muted=false;a.play().catch(()=>{});}
+  };
+  document.addEventListener("click",resumeMedia,{passive:true});
+  document.addEventListener("touchstart",resumeMedia,{passive:true});
 
-  /* Room entry is defined elsewhere in this legacy page. Do not depend on
-     wrapping that function: watch the room state directly so the signaling
-     channel is ALWAYS created after a user joins a room. */
-  const roomWatcher=setInterval(()=>{
+  /* Start signaling after room entry without modifying the room/chat code. */
+  const watcher=setInterval(()=>{
     if(!currentRoomCode){
       if(S.room){
-        S.room=null;
-        S.subscribed=false;
-        lastSignalId=0;
+        S.room=null;S.ready=false;S.lastSignalId=0;
+        if(S.pollTimer){clearInterval(S.pollTimer);S.pollTimer=null;}
+        closeAll();
       }
-      if(signalPollTimer){clearInterval(signalPollTimer);signalPollTimer=null;}
       return;
     }
-    if(S.room!==currentRoomCode || !S.subscribed){
-      connect().catch(e=>console.warn("Screen-share signaling init:",e));
-    }
-  },1500);
+    if(S.room!==currentRoomCode||!S.ready)connect().catch(()=>{});
+  },1200);
 
-  if(typeof currentRoomCode!=="undefined" && currentRoomCode){
-    connect().catch(e=>console.warn("Screen-share channel init:",e));
-  }
+  if(typeof currentRoomCode!=="undefined"&&currentRoomCode)connect().catch(()=>{});
 })();
 </script>
 </body>
