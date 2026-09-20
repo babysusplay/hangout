@@ -276,14 +276,16 @@ async function addQueuedIce(){
 }
 async function createHostPeer(target,session){
   if(!isHost||(!shareStream&&!micOn)||!target||makingOffer)return;
+  if(pc&&peerId===target&&!["failed","closed"].includes(pc.connectionState))return;
   makingOffer=true;closePeer();peerId=target;remoteSession=session||crypto.randomUUID();pc=new RTCPeerConnection(ICE_CONFIG);
   const localSession=remoteSession;
   if(shareStream)shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
-  pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
+  pc.onicecandidate=e=>{if(e.candidate&&pc===hostPc)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.oniceconnectionstatechange=()=>console.log("[WebRTC host ICE]",pc?.iceConnectionState);
   pc.onsignalingstatechange=()=>console.log("[WebRTC host signaling]",pc?.signalingState);
-  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",pc?.connectionState);if(pc?.connectionState==="failed")setTimeout(()=>{if(shareStream&&peerId===target&&pc?.connectionState==="failed")createHostPeer(target,crypto.randomUUID()).catch(()=>{})},1200)};
+  const hostPc=pc;
+  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",hostPc?.connectionState);if(hostPc?.connectionState==="failed")setTimeout(()=>{if(shareStream&&pc===hostPc&&hostPc.connectionState==="failed")createHostPeer(target,crypto.randomUUID()).catch(()=>{})},1200)};
   try{
     const offer=await pc.createOffer({offerToReceiveAudio:true});
     await pc.setLocalDescription(offer);
