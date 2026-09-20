@@ -215,10 +215,10 @@ function setStatus(text,online=false){$("roleStatus").textContent=text;$("roleSt
 function setMemberCount(n){$("memberCount").textContent=n>=2?"2/2 connected":n===1?"Waiting for friend":"No one connected"}
 
 async function openChannels(){
-  roomChannel=supabaseClient.channel("hangout-duo-signal",{config:{broadcast:{self:false}}});
+  roomChannel=supabaseClient.channel("hangout-duo-signal",{config:{broadcast:{self:false,ack:true}}});
   roomChannel.on("broadcast",{event:"signal"},({payload})=>handleSignal(payload));
   await new Promise((resolve,reject)=>{
-    roomChannel.subscribe(s=>{if(s==="SUBSCRIBED")resolve();if(s==="CHANNEL_ERROR"||s==="TIMED_OUT")reject(new Error("Signal channel unavailable"))});
+    roomChannel.subscribe((s,err)=>{console.log("[Signal]",s,err||"");if(s==="SUBSCRIBED")resolve();if(s==="CHANNEL_ERROR"||s==="TIMED_OUT")reject(new Error("Signal channel unavailable"))});
   });
   chatChannel=supabaseClient.channel("hangout-duo-chat",{config:{broadcast:{self:false}}});
   chatChannel.on("broadcast",{event:"chat"},({payload})=>{if(payload?.from!==sessionUserId)addMessage(payload)});
@@ -278,7 +278,7 @@ async function createHostPeer(target,session){
   if(shareStream)shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
-  pc.onconnectionstatechange=()=>{if(pc&&(pc.connectionState==="failed"||pc.connectionState==="disconnected"))setTimeout(()=>{if(shareStream&&peerId===target)createHostPeer(target,localSession).catch(()=>{})},700)};
+  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",pc?.connectionState);if(pc&&(pc.connectionState==="failed"||pc.connectionState==="disconnected"))setTimeout(()=>{if(shareStream&&peerId===target)createHostPeer(target,crypto.randomUUID()).catch(()=>{})},900)};
   try{
     const offer=await pc.createOffer({offerToReceiveAudio:true});
     await pc.setLocalDescription(offer);
@@ -290,9 +290,9 @@ async function createViewerPeer(from,session,sdp){
   closePeer();peerId=from;remoteSession=session;pc=new RTCPeerConnection(ICE_CONFIG);
   const remote=new MediaStream();setRemote(remote);
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
-  pc.ontrack=e=>{if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id))remote.addTrack(e.track);setRemote(remote)};
+  pc.ontrack=e=>{console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);const incoming=e.streams?.[0];if(incoming)setRemote(incoming);else if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id)){remote.addTrack(e.track);setRemote(remote)}};
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
-  pc.onconnectionstatechange=()=>{if(pc?.connectionState==="failed"||pc?.connectionState==="closed")clearRemote()};
+  pc.onconnectionstatechange=()=>{console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},900)}};
   try{
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));await addQueuedIce();
     const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
@@ -416,7 +416,7 @@ async function joinRoom(asHost){
     hostId=list[0]?.user_id||sessionUserId;isHost=hostId===sessionUserId;
     setStatus(isHost?"Host":"Friend",true);setMemberCount(list.length);joined=true;
     $("shareBtn").style.display=isHost?"block":"none";$("controlShare").style.display=isHost?"block":"none";
-    await loadChat();await openChannels();startSignalPolling();
+    await loadChat();await openChannels();startSignalPolling();startSignalPolling();
     if(!isHost){setTimeout(requestHost,150);setTimeout(requestHost,800);setTimeout(requestHost,1800)}
     startMemberWatcher();
     toast(isHost?"Room created":"Joined Hangout");
@@ -455,6 +455,8 @@ $("quality").onchange=()=>requestQuality();
 $("mediaCard").onclick=()=>{$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
 window.addEventListener("beforeunload",()=>{try{supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}});
+window.addEventListener("error",e=>console.error("[Hangout JS error]",e.error||e.message));
+window.addEventListener("unhandledrejection",e=>console.error("[Hangout promise error]",e.reason));
 </script>
 </body>
 </html>
