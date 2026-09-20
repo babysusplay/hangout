@@ -443,14 +443,18 @@ async function startShare(){
       // On re-share, reuse the already-connected PeerConnection and replace
       // its media tracks. This avoids a second SDP/ICE negotiation entirely.
       if(pc&&peerId===guest.user_id&&!["failed","closed"].includes(pc.connectionState)){
-        for(const sender of pc.getSenders()){
-          if(sender.track?.kind==="video")try{await sender.replaceTrack(track)}catch{}
-          if(sender.track?.kind==="audio"){
-            const audioTrack=shareStream.getAudioTracks()[0]||null;
-            if(audioTrack)try{await sender.replaceTrack(audioTrack)}catch{}
-          }
-        }
-        console.log("[WebRTC host] reusing existing peer for screen-share restart");
+        const videoSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="video")?.sender;
+        const audioSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="audio")?.sender;
+        if(!videoSender)throw new Error("Existing video sender was not found");
+        await videoSender.replaceTrack(track);
+        const audioTrack=shareStream.getAudioTracks()[0]||null;
+        if(audioTrack&&audioSender)await audioSender.replaceTrack(audioTrack);
+        if(videoSender.setStreams)videoSender.setStreams(shareStream);
+        console.log("[WebRTC host] replaced existing video sender",{
+          senderTrack:videoSender.track?.readyState||null,
+          connection:pc.connectionState,
+          ice:pc.iceConnectionState
+        });
       }else{
         await createHostPeer(guest.user_id,crypto.randomUUID());
       }
