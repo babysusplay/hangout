@@ -1898,7 +1898,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_JBouQaYKn-Fiye1Go6-cJA_rhJVHi4A
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let roomChannel = null;
 let roomMembers = [];
-let peerConnections = {};
+let legacyPeerConnections = {};
 let screenShareOwnerId = null;
 let isScreenShareHost = false;
 
@@ -1984,13 +1984,13 @@ function toggleShareSettings(event){
     showMediaControls();
 }
 
-function getVideoSenderForPeer(userId){
-    const pc=peerConnections[userId];
+function legacyGetVideoSenderForPeer(userId){
+    const pc=legacyPeerConnections[userId];
     if(!pc) return null;
     return pc.getSenders().find(sender=>sender.track && sender.track.kind==="video") || null;
 }
 
-async function applyQualityToPeer(userId,quality){
+async function legacyApplyQualityToPeer(userId,quality){
     const sender=getVideoSenderForPeer(userId);
     if(!sender) return;
     const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
@@ -2009,7 +2009,7 @@ async function applyQualityToPeer(userId,quality){
     }));
     try{ await sender.setParameters(params); }catch(error){ console.warn("Video quality update failed",error); }
 
-    const pc=peerConnections[userId];
+    const pc=legacyPeerConnections[userId];
     const audioSender=pc?.getSenders().find(s=>s.track && s.track.kind==="audio");
     if(audioSender){
         const audioParams=audioSender.getParameters();
@@ -2019,7 +2019,7 @@ async function applyQualityToPeer(userId,quality){
     }
 }
 
-async function applyHostShareQuality(quality){
+async function legacyApplyHostShareQuality(quality){
     if(!screenShareStream) return;
     const track=screenShareStream.getVideoTracks()[0];
     const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
@@ -2036,14 +2036,14 @@ async function applyHostShareQuality(quality){
     }
 }
 
-async function setHostShareQuality(quality){
+async function legacySetHostShareQuality(quality){
     if(!isScreenShareHost){ showToast("Start screen sharing to set share quality"); return; }
     await applyHostShareQuality(quality);
     showToast(quality==="source"?"Sharing at source quality":"Sharing at "+quality+"p");
     showMediaControls();
 }
 
-async function requestViewingQuality(quality){
+async function legacyRequestViewingQuality(quality){
     const select=document.getElementById("viewerQualitySelect");
     if(select) select.value=quality;
     if(isScreenShareHost){
@@ -2068,7 +2068,7 @@ async function toggleScreenShare(event){
     await startScreenShare();
 }
 
-async function startScreenShare(){
+async function legacyStartScreenShare(){
     if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
         showToast("Screen sharing is not supported here");
         return;
@@ -2124,7 +2124,7 @@ async function startScreenShare(){
     }
 }
 
-async function stopScreenShare(){
+async function legacyStopScreenShare(){
     if(screenShareStream) screenShareStream.getTracks().forEach(track=>track.stop());
     screenShareStream = null;
     isScreenShareHost = false;
@@ -2135,8 +2135,8 @@ async function stopScreenShare(){
     const audio=document.getElementById("remoteShareAudio");
     if(audio){ audio.pause?.(); audio.srcObject=null; audio.muted=true; }
     if(card) card.classList.remove("sharing");
-    Object.values(peerConnections).forEach(pc=>pc.close());
-    peerConnections = {};
+    Object.values(legacyPeerConnections).forEach(pc=>pc.close());
+    legacyPeerConnections = {};
     document.getElementById("shareSettings")?.classList.remove("show");
     updateShareButton();
     await broadcastSignal({type:"screen-share-stop", from:sessionUserId});
@@ -2282,7 +2282,7 @@ function closeRoomChannel(){
     }
 }
 
-async function setupRoomRealtime(){
+async function legacySetupRoomRealtime(){
     closeRoomChannel();
     await loadMembers();
     roomChannel = supabaseClient.channel("hangout-room-" + currentRoomCode, {config:{broadcast:{self:false}}});
@@ -2306,7 +2306,7 @@ async function setupRoomRealtime(){
                 await loadMembers();
                 if(isScreenShareHost){
                     for(const member of roomMembers){
-                        if(member.user_id !== sessionUserId && !peerConnections[member.user_id]) await createOfferFor(member.user_id);
+                        if(member.user_id !== sessionUserId && !legacyPeerConnections[member.user_id]) await createOfferFor(member.user_id);
                     }
                 }
             }catch(e){ console.error(e); }
@@ -2316,7 +2316,7 @@ async function setupRoomRealtime(){
         });
 }
 
-async function broadcastSignal(signal){
+async function legacyBroadcastSignal(signal){
     if(!currentRoomCode) return;
     const {error} = await supabaseClient.from("room_messages").insert({
         room_code:currentRoomCode,
@@ -2328,17 +2328,17 @@ async function broadcastSignal(signal){
     if(error) console.error("Signal error",error);
 }
 
-function rtcConfig(){
+function legacyRtcConfig(){
     return {iceServers:[
         {urls:"stun:stun.l.google.com:19302"},
         {urls:"stun:stun1.l.google.com:19302"}
     ]};
 }
 
-function makePeer(userId){
-    if(peerConnections[userId]) return peerConnections[userId];
+function legacyMakePeer(userId){
+    if(legacyPeerConnections[userId]) return legacyPeerConnections[userId];
     const pc = new RTCPeerConnection(rtcConfig());
-    peerConnections[userId] = pc;
+    legacyPeerConnections[userId] = pc;
     if(screenShareStream && isScreenShareHost){
         screenShareStream.getTracks().forEach(track=>pc.addTrack(track,screenShareStream));
     }
@@ -2367,13 +2367,13 @@ function makePeer(userId){
     pc.onconnectionstatechange = ()=>{
         if(["failed","closed","disconnected"].includes(pc.connectionState)){
             pc.close();
-            delete peerConnections[userId];
+            delete legacyPeerConnections[userId];
         }
     };
     return pc;
 }
 
-async function createOfferFor(userId){
+async function legacyCreateOfferFor(userId){
     if(!screenShareStream || !isScreenShareHost || userId===sessionUserId) return;
     const pc=makePeer(userId);
     await applyQualityToPeer(userId,"source");
@@ -2382,7 +2382,7 @@ async function createOfferFor(userId){
     await broadcastSignal({type:"offer",from:sessionUserId,to:userId,description:pc.localDescription});
 }
 
-async function handleSignalMessage(msg){
+async function legacyHandleSignalMessage(msg){
     let signal;
     try{ signal=JSON.parse(msg.message); }catch{return;}
     if(signal.to && signal.to!=="room" && signal.to!==sessionUserId) return;
@@ -2396,8 +2396,8 @@ async function handleSignalMessage(msg){
             if(video) video.srcObject=null;
             document.querySelector(".media-card")?.classList.remove("sharing");
         }
-        Object.values(peerConnections).forEach(pc=>pc.close());
-        peerConnections={};
+        Object.values(legacyPeerConnections).forEach(pc=>pc.close());
+        legacyPeerConnections={};
         screenShareOwnerId=null;
         return;
     }
@@ -2416,12 +2416,12 @@ async function handleSignalMessage(msg){
         return;
     }
     if(signal.type==="answer"){
-        const pc=peerConnections[signal.from] || makePeer(signal.from);
+        const pc=legacyPeerConnections[signal.from] || makePeer(signal.from);
         await pc.setRemoteDescription(signal.description);
         return;
     }
     if(signal.type==="ice"){
-        const pc=peerConnections[signal.from];
+        const pc=legacyPeerConnections[signal.from];
         if(pc && signal.candidate){
             try{ await pc.addIceCandidate(signal.candidate); }catch(e){ console.error(e); }
         }
@@ -3167,14 +3167,14 @@ async function broadcastSystemJoin(){
     if(error) console.error(error);
 }
 
-async function leaveRoom(){
+async function legacyLeaveRoom(){
     if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
     if(currentRoomCode){
         await supabaseClient.from("room_members").delete().eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
     }
-    Object.values(peerConnections).forEach(pc=>pc.close());
-    peerConnections={};
+    Object.values(legacyPeerConnections).forEach(pc=>pc.close());
+    legacyPeerConnections={};
     closeRoomChannel();
     currentRoomCode="";
     document.getElementById("room").style.display="none";
@@ -3677,10 +3677,10 @@ function rtcConfig(){
     };
 }
 
-function makePeer(userId){
-    if(peerConnections[userId])return peerConnections[userId];
+function legacyMakePeer(userId){
+    if(legacyPeerConnections[userId])return legacyPeerConnections[userId];
     const pc=new RTCPeerConnection(rtcConfig());
-    peerConnections[userId]=pc;
+    legacyPeerConnections[userId]=pc;
     _pendingIceByPeer[userId]=_pendingIceByPeer[userId]||[];
 
     if(screenShareStream && isScreenShareHost){
@@ -3734,14 +3734,14 @@ function makePeer(userId){
         }
         if(["failed","closed"].includes(pc.connectionState)){
             pc.close();
-            if(peerConnections[userId]===pc)delete peerConnections[userId];
+            if(legacyPeerConnections[userId]===pc)delete legacyPeerConnections[userId];
         }
     };
     return pc;
 }
 
 async function flushPendingIce(userId){
-    const pc=peerConnections[userId];
+    const pc=legacyPeerConnections[userId];
     if(!pc || !pc.remoteDescription)return;
     const queue=_pendingIceByPeer[userId]||[];
     _pendingIceByPeer[userId]=[];
@@ -3750,11 +3750,11 @@ async function flushPendingIce(userId){
     }
 }
 
-async function createOfferFor(userId){
+async function legacyCreateOfferFor(userId){
     if(!screenShareStream || !isScreenShareHost || !userId || userId===sessionUserId)return;
-    if(peerConnections[userId]){
-        try{peerConnections[userId].close();}catch{}
-        delete peerConnections[userId];
+    if(legacyPeerConnections[userId]){
+        try{legacyPeerConnections[userId].close();}catch{}
+        delete legacyPeerConnections[userId];
     }
     const pc=makePeer(userId);
     try{
@@ -3770,7 +3770,7 @@ async function createOfferFor(userId){
     }catch(e){console.error("Offer creation failed",e);}
 }
 
-async function handleSignalMessage(msg){
+async function legacyHandleSignalMessage(msg){
     let signal;
     try{signal=JSON.parse(msg.message);}catch{return;}
     if(!signal)return;
@@ -3798,8 +3798,8 @@ async function handleSignalMessage(msg){
             if(audio){audio.pause?.();audio.srcObject=null;}
             document.querySelector(".media-card")?.classList.remove("sharing");
         }
-        Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
-        peerConnections={};
+        Object.values(legacyPeerConnections).forEach(pc=>{try{pc.close();}catch{}});
+        legacyPeerConnections={};
         screenShareOwnerId=null;
         return;
     }
@@ -3812,8 +3812,8 @@ async function handleSignalMessage(msg){
     }
 
     if(signal.type==="offer"){
-        const old=peerConnections[signal.from];
-        if(old){try{old.close();}catch{};delete peerConnections[signal.from];}
+        const old=legacyPeerConnections[signal.from];
+        if(old){try{old.close();}catch{};delete legacyPeerConnections[signal.from];}
         const pc=makePeer(signal.from);
         try{
             await pc.setRemoteDescription(signal.description);
@@ -3831,7 +3831,7 @@ async function handleSignalMessage(msg){
     }
 
     if(signal.type==="answer"){
-        const pc=peerConnections[signal.from];
+        const pc=legacyPeerConnections[signal.from];
         if(!pc)return;
         try{
             await pc.setRemoteDescription(signal.description);
@@ -3842,7 +3842,7 @@ async function handleSignalMessage(msg){
 
     if(signal.type==="ice"){
         if(!signal.candidate)return;
-        const pc=peerConnections[signal.from];
+        const pc=legacyPeerConnections[signal.from];
         if(!pc || !pc.remoteDescription){
             (_pendingIceByPeer[signal.from]||(_pendingIceByPeer[signal.from]=[])).push(signal.candidate);
             return;
@@ -3851,7 +3851,7 @@ async function handleSignalMessage(msg){
     }
 }
 
-async function requestCurrentScreenShare(){
+async function legacyRequestCurrentScreenShare(){
     if(!currentRoomCode || isScreenShareHost)return;
     await broadcastSignal({
         type:"screen-share-request",
@@ -3862,7 +3862,7 @@ async function requestCurrentScreenShare(){
 
 /* Re-define realtime setup so the late joiner explicitly requests
    an already-active share after the channel is fully subscribed. */
-async function setupRoomRealtime(){
+async function legacySetupRoomRealtime(){
     closeRoomChannel();
     await loadMembers();
 
@@ -3897,7 +3897,7 @@ async function setupRoomRealtime(){
               await loadMembers();
               if(isScreenShareHost){
                   for(const member of roomMembers){
-                      if(member.user_id!==sessionUserId && !peerConnections[member.user_id]){
+                      if(member.user_id!==sessionUserId && !legacyPeerConnections[member.user_id]){
                           await createOfferFor(member.user_id);
                       }
                   }
@@ -3948,7 +3948,7 @@ async function enterRoom(roomName,code){
     showToast("Joined Room ✓");
 }
 
-async function leaveRoom(){
+async function legacyLeaveRoom(){
     stopPresenceHeartbeat();
     if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
@@ -3958,8 +3958,8 @@ async function leaveRoom(){
                 .eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
         }catch(e){console.warn(e);}
     }
-    Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
-    peerConnections={};
+    Object.values(legacyPeerConnections).forEach(pc=>{try{pc.close();}catch{}});
+    legacyPeerConnections={};
     closeRoomChannel();
     currentRoomCode="";
     document.getElementById("room").style.display="none";
@@ -3970,7 +3970,7 @@ async function leaveRoom(){
 
 /* Make the screen-share start/stop path explicitly notify and
    re-negotiate all current members. */
-async function startScreenShare(){
+async function legacyStartScreenShare(){
     if(!navigator.mediaDevices?.getDisplayMedia){
         showToast("Screen sharing is not supported here");
         return;
@@ -4033,7 +4033,7 @@ async function startScreenShare(){
     }
 }
 
-async function stopScreenShare(){
+async function legacyStopScreenShare(){
     if(screenShareStream)screenShareStream.getTracks().forEach(track=>track.stop());
     screenShareStream=null;
     isScreenShareHost=false;
@@ -4046,8 +4046,8 @@ async function stopScreenShare(){
     if(audio){audio.pause?.();audio.srcObject=null;}
     card?.classList.remove("sharing");
 
-    Object.values(peerConnections).forEach(pc=>{try{pc.close();}catch{}});
-    peerConnections={};
+    Object.values(legacyPeerConnections).forEach(pc=>{try{pc.close();}catch{}});
+    legacyPeerConnections={};
     for(const k in _pendingIceByPeer)delete _pendingIceByPeer[k];
 
     document.getElementById("shareSettings")?.classList.remove("show");
@@ -4326,7 +4326,7 @@ async function setupRoomRealtime(){
       .subscribe(status=>{if(status==="SUBSCRIBED")showToast("Room connected ✓");});
 }
 
-async function requestCurrentScreenShare(){
+async function legacyRequestCurrentScreenShare(){
     /* Screen-share requests are sent through the dedicated Realtime
        WebRTC engine. This legacy entry point intentionally does nothing. */
     return;
@@ -4334,7 +4334,7 @@ async function requestCurrentScreenShare(){
 
 /* Re-declare signaling handler so a late join can recover an already-active share. */
 const _identityOriginalHandleSignalMessage=handleSignalMessage;
-async function handleSignalMessage(msg){
+async function legacyHandleSignalMessage(msg){
     let signal;try{signal=JSON.parse(msg.message);}catch{return;}
     if(!signal)return;
     if(signal.type==="screen-share-request"){
@@ -4384,7 +4384,7 @@ async function leaveRoom(){
     if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
     if(leavingCode){await supabaseClient.from("room_members").delete().eq("room_code",leavingCode).eq("user_id",sessionUserId);}
-    Object.values(peerConnections).forEach(pc=>pc.close());peerConnections={};closeRoomChannel();currentRoomCode="";roomProfiles={};roomMembers=[];
+    Object.values(legacyPeerConnections).forEach(pc=>pc.close());legacyPeerConnections={};closeRoomChannel();currentRoomCode="";roomProfiles={};roomMembers=[];
     document.getElementById("room").style.display="none";document.getElementById("landing").style.display="block";renderRecentRooms();updateProfileUI();showToast("You left the room");
 }
 
@@ -4600,6 +4600,47 @@ loadLocalProfile();
     catch(e){console.warn("Screen ICE failed",e);}
   }
 
+  async function applyQualityToPeer(viewerId,quality){
+    const pc=S.peers.get(viewerId);if(!pc)return;
+    const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
+    for(const sender of pc.getSenders()){
+      if(!sender.track)continue;
+      try{
+        const p=sender.getParameters();if(!p.encodings?.length)p.encodings=[{}];
+        p.encodings=p.encodings.map(enc=>sender.track.kind==="video"
+          ?({...enc,maxBitrate:preset.maxBitrate,maxFramerate:preset.maxFramerate})
+          :({...enc,maxBitrate:128000}));
+        await sender.setParameters(p);
+      }catch(e){console.warn("Share quality update failed",e);}
+    }
+  }
+  async function applyHostShareQuality(quality){
+    if(!S.stream)return;
+    const preset=SHARE_QUALITY_PRESETS[quality]||SHARE_QUALITY_PRESETS.source;
+    const track=S.stream.getVideoTracks()[0];
+    if(track&&preset.height){
+      try{
+        const st=track.getSettings?.()||{},aspect=st.width&&st.height?st.width/st.height:16/9;
+        await track.applyConstraints({width:{ideal:Math.round(preset.height*aspect)},height:{ideal:preset.height},frameRate:{ideal:preset.maxFramerate,max:preset.maxFramerate}});
+      }catch(e){console.warn("Capture quality constraint not applied",e);}
+    }
+    for(const id of S.peers.keys())await applyQualityToPeer(id,quality);
+  }
+  async function setHostShareQuality(quality){
+    if(!S.host||!S.stream){showToast("Start screen sharing to set share quality");return;}
+    await applyHostShareQuality(quality);
+    showToast(quality==="source"?"Sharing at source quality":"Sharing at "+quality+"p");showMediaControls();
+  }
+  async function requestViewingQuality(quality){
+    const select=document.getElementById("viewerQualitySelect");if(select)select.value=quality;
+    if(S.host&&S.stream){await setHostShareQuality(quality);return;}
+    if(S.remoteSessionId&&screenShareOwnerId){
+      await signal({type:"quality-request",from:sessionUserId,to:screenShareOwnerId,quality});
+      showToast(quality==="source"?"Requested source quality":"Requested "+quality+"p");
+    }else showToast("No active screen share");
+    showMediaControls();
+  }
+
   async function handleSignal(data){
     if(!data||data.to&&data.to!==sessionUserId)return;
     if(data.type==="request"){
@@ -4609,6 +4650,10 @@ loadLocalProfile();
     if(data.type==="offer"){await handleOffer(data);return;}
     if(data.type==="answer"){await handleAnswer(data);return;}
     if(data.type==="ice"){await handleIce(data);return;}
+    if(data.type==="quality-request"){
+      if(S.host&&S.stream&&data.from&&data.from!==sessionUserId)await applyQualityToPeer(data.from,data.quality||"source");
+      return;
+    }
     if(data.type==="stop"){
       if(data.session)S.invalidSessions.add(data.session);
       if(!S.host&&(!data.session||data.session===S.remoteSessionId)){
@@ -4714,6 +4759,7 @@ loadLocalProfile();
         v.play().catch(()=>{});
       }
       ui(true);
+      updateShareButton();
       vt.addEventListener("ended",()=>stop(),{once:true});
 
       await connect();
@@ -4746,10 +4792,13 @@ loadLocalProfile();
     if(v){v.pause();v.srcObject=null;}
     if(a){a.pause();a.srcObject=null;}
     ui(false);
+    updateShareButton();
     if(active)await signal({type:"stop",from:sessionUserId,session:stoppedSession});
     if(active)showToast("Screen sharing stopped");
   }
 
+  window.setHostShareQuality=setHostShareQuality;
+  window.requestViewingQuality=requestViewingQuality;
   window.startScreenShare=start;
   window.stopScreenShare=stop;
   window.toggleScreenShare=async e=>{
