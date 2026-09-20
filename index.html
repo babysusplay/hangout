@@ -261,7 +261,7 @@ async function pollSignals(){
     if(seenSignals.size>200){seenSignals=new Set(Array.from(seenSignals).slice(-100))}
   }catch(e){}
 }
-function startSignalPolling(){clearInterval(signalPoller);signalPoller=setInterval(pollSignals,700);pollSignals()}
+function startSignalPolling(){clearInterval(signalPoller);signalPoller=setInterval(pollSignals,250);pollSignals()}
 function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set();seenSignalSids=new Set();signalSince=0}
 async function chatBroadcast(payload){if(chatChannel)try{await chatChannel.send({type:"broadcast",event:"chat",payload})}catch(e){}}
 
@@ -638,7 +638,7 @@ async function joinRoom(asHost){
     setStatus(isHost?"Host":"Friend",true);setMemberCount(list.length);joined=true;
     $("shareBtn").style.display=isHost?"block":"none";$("controlShare").style.display=isHost?"block":"none";
     await loadChat();await openChannels();signalSince=Date.now()-1500;startSignalPolling();
-    if(!isHost){setTimeout(requestHost,150);setTimeout(requestHost,800);setTimeout(requestHost,1800)}
+    if(!isHost){setTimeout(requestHost,100);setTimeout(requestHost,400);setTimeout(requestHost,1000)}
     startMemberWatcher();
     toast(isHost?"Room created":"Joined Hangout");
   }catch(e){
