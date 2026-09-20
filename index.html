@@ -4316,18 +4316,20 @@ async function setupRoomRealtime(){
         else if(msg.message_type==="sticker_image")appendRemoteSticker(msg);
         else if(msg.message_type==="custom_asset_remove")removeCustomAssetLocal(msg.message);
         else if(msg.message_type==="system")addSystemMessage(msg.message);
-        else if(msg.message_type==="signal")handleSignalMessage(msg);
+        /* WebRTC screen-share signaling is handled only by the dedicated
+           Realtime screen channel below. Never route signal rows through
+           the legacy DB signaling engine. */
       })
       .on("postgres_changes",{event:"*",schema:"public",table:"room_members",filter:"room_code=eq."+currentRoomCode},async()=>{
-        try{await loadMembers();if(isScreenShareHost){for(const member of roomMembers){if(member.user_id!==sessionUserId&&!peerConnections[member.user_id])await createOfferFor(member.user_id);}}}catch(e){console.error(e);}
+        try{await loadMembers();}catch(e){console.error(e);}
       })
       .subscribe(status=>{if(status==="SUBSCRIBED")showToast("Room connected ✓");});
 }
 
 async function requestCurrentScreenShare(){
-    if(!currentRoomCode||isScreenShareHost)return;
-    // Ask the current sharer to create a fresh peer connection for this device.
-    await broadcastSignal({type:"screen-share-request",from:sessionUserId,to:"room"});
+    /* Screen-share requests are sent through the dedicated Realtime
+       WebRTC engine. This legacy entry point intentionally does nothing. */
+    return;
 }
 
 /* Re-declare signaling handler so a late join can recover an already-active share. */
