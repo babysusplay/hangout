@@ -4016,7 +4016,7 @@ async function startScreenShare(){
         const videoTrack=screenShareStream.getVideoTracks()[0];
         if(videoTrack){
             try{videoTrack.contentHint="detail";}catch{}
-            videoTrack.addEventListener("ended",stopScreenShare,{once:true});
+            videoTrack.addEventListener("ended",()=>window.stopScreenShare?.(),{once:true});
         }
         if(!screenShareStream.getAudioTracks().length){
             showToast("System audio was not included by your browser/share picker");
