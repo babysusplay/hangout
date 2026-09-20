@@ -464,36 +464,35 @@ async function startShare(){
           ice:pc.iceConnectionState
         });
         await videoSender.replaceTrack(track);
-        const audioTrack=shareStream.getAudioTracks()[0]||null;
-        if(audioTrack&&audioSender)await audioSender.replaceTrack(audioTrack);
-        if(videoSender.setStreams)videoSender.setStreams(shareStream);
         console.log("[WebRTC host] replaceTrack succeeded",{
           senderTrack:videoSender.track?.readyState||null,
           trackId:track?.id||null,
           connection:pc.connectionState,
           ice:pc.iceConnectionState
         });
-
-        // A stopped sender can leave the remote receiver muted/removed on some
-        // browser combinations. Renegotiate on the SAME PeerConnection so the
-        // viewer gets an explicit media resume without creating a new peer.
-        if(pc.signalingState==="stable" && !makingOffer){
-          makingOffer=true;
-          try{
-            const offer=await pc.createOffer({offerToReceiveAudio:true});
-            await pc.setLocalDescription(offer);
-            await signal({
-              type:"offer",
-              from:sessionUserId,
-              to:guest.user_id,
-              session:remoteSession,
-              sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
-            });
-            console.log("[WebRTC host] renegotiation offer sent for screen-share resume");
-          }finally{
-            makingOffer=false;
+        // Re-enable the existing RTP encoding. We keep the sender/transceiver
+        // and its negotiated receiver alive across Stop -> Share.
+        const videoParams=videoSender.getParameters();
+        if(videoParams.encodings?.length){
+          videoParams.encodings.forEach(enc=>enc.active=true);
+          await videoSender.setParameters(videoParams);
+        }
+        if(audioSender){
+          const audioTrack=shareStream.getAudioTracks()[0]||null;
+          if(audioTrack){
+            await audioSender.replaceTrack(audioTrack);
+            const audioParams=audioSender.getParameters();
+            if(audioParams.encodings?.length){
+              audioParams.encodings.forEach(enc=>enc.active=true);
+              await audioSender.setParameters(audioParams);
+            }
           }
         }
+        console.log("[WebRTC host] existing sender re-enabled",{
+          videoActive:videoSender.getParameters().encodings?.map(e=>e.active),
+          connection:pc.connectionState,
+          ice:pc.iceConnectionState
+        });
       }else{
         await createHostPeer(guest.user_id,crypto.randomUUID());
       }
@@ -510,12 +509,29 @@ async function stopShare(){
   const target=peerId,old=remoteSession;
   if(target&&old)signal({type:"stop",from:sessionUserId,to:target,session:old}).catch(()=>{});
 
-  // Keep the WebRTC connection alive. Stopping a screen track does not require
-  // rebuilding the peer; the next share can replace the existing sender track.
+  // Keep the negotiated sender/transceiver alive. Disable RTP sending
+  // instead of replaceTrack(null); this preserves the remote receiver/stream
+  // so the next Share can reuse the exact same media path.
   if(pc&&isHost){
     for(const sender of pc.getSenders()){
-      if(sender.track?.kind==="video")try{await sender.replaceTrack(null)}catch{}
-      if(sender.track?.kind==="audio" && !micOn)try{await sender.replaceTrack(null)}catch{}
+      if(sender.track?.kind==="video"){
+        try{
+          const params=sender.getParameters();
+          if(params.encodings?.length){
+            params.encodings.forEach(enc=>enc.active=false);
+            await sender.setParameters(params);
+          }
+        }catch(e){console.error("[WebRTC host] failed to pause video sender",e)}
+      }
+      if(sender.track?.kind==="audio" && !micOn){
+        try{
+          const params=sender.getParameters();
+          if(params.encodings?.length){
+            params.encodings.forEach(enc=>enc.active=false);
+            await sender.setParameters(params);
+          }
+        }catch(e){console.error("[WebRTC host] failed to pause audio sender",e)}
+      }
     }
   }
   if(shareStream){shareStream.getTracks().forEach(t=>{try{t.stop()}catch{}});shareStream=null}
