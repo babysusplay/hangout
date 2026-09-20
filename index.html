@@ -8,7 +8,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#07080d;--panel:#0d0f17;--card:#11131d;--border:rgba(255,255,255,.09);--text:#f5f7ff;--muted:#858b9b;--accent:#7c5cff;--danger:#ef4444}
-html,body{width:100%;height:100%;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+html,body{width:100%;height:100%;font-family:Inter,Arial,sans-serif;background:var(--bg);overflow:hidden;overscroll-behavior:none}
+html{position:fixed;inset:0}
+body{position:fixed;inset:0}
+#room{height:100dvh;overflow:hidden}
+.room{height:100%;min-height:0}
+.body{min-height:0;overflow:hidden}
+.chat{min-height:0}
+.messages{overscroll-behavior:contain}
+.chat-form{flex:0 0 auto}
+.chat-box input{scroll-margin-bottom:8px}
 button,input{font:inherit}button{cursor:pointer}
 #landing{height:100%;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(circle at 20% 10%,rgba(124,92,255,.16),transparent 32%),radial-gradient(circle at 90% 90%,rgba(80,65,210,.12),transparent 30%),var(--bg)}
 .landing-card{width:min(440px,100%);text-align:center;padding:38px 28px;border:1px solid var(--border);background:rgba(17,19,29,.78);border-radius:24px;box-shadow:0 30px 90px rgba(0,0,0,.4)}
@@ -65,7 +74,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 @media(max-width:800px){
   .top{height:45px;flex-basis:45px;padding:0 9px}.brand-mark{width:27px;height:27px;font-size:13px}.brand{font-size:11px}.status{font-size:8px}
   .top-actions{gap:4px}.small-btn{height:29px;padding:0 8px;font-size:8px}
-  .body{flex-direction:column}.media{width:100%;height:45%;padding:7px;flex:0 0 45%}.chat{width:100%;height:55%;min-width:0;flex:0 0 55%;border-left:0;border-top:1px solid var(--border)}
+  .body{flex-direction:column}.media{width:100%;height:40%;padding:7px;flex:0 0 40%}.chat{width:100%;height:60%;min-width:0;flex:0 0 60%;border-left:0;border-top:1px solid var(--border)}
   .chat-head{height:34px;flex-basis:34px;padding:0 10px}.messages{padding:7px 9px}.msg{margin-bottom:8px}.avatar{width:24px;height:24px;flex-basis:24px;border-radius:7px;font-size:8px}.msg-name{font-size:9px}.msg-text{font-size:9px}.chat-form{padding:5px}.chat-box input{font-size:9px;padding:5px}
   .controls{padding:8px}.ctrl{height:34px;min-width:34px;padding:0 8px}.quality{height:31px;font-size:8px}
 }
@@ -74,7 +83,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 }
 @media(max-width:500px) and (orientation:portrait){
   .landing-card{padding:30px 20px}.actions{grid-template-columns:1fr}
-  .room .top{display:none}.media{height:45%;flex-basis:45%}.chat{height:55%;flex-basis:55%}
+  .room .top{display:none}.media{height:40%;flex-basis:40%}.chat{height:60%;flex-basis:60%}
 }
 
 .debug-panel{position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;display:none;max-height:34vh;overflow:auto;padding:8px 10px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(0,0,0,.9);color:#7CFFB2;font:10px/1.45 monospace;white-space:pre-wrap;pointer-events:none}
@@ -680,6 +689,67 @@ $("fitBtn").onclick=()=>{
 $("quality").onchange=()=>requestQuality();
 $("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
+
+// Keep the Hangout viewport locked while the native mobile keyboard is open.
+// visualViewport shrinks to the area above the keyboard, so only the chat
+// area/input reflows instead of the whole page being panned away.
+(function lockMobileKeyboardViewport(){
+  const root=document.documentElement;
+  const room=$("room");
+  let baseHeight=0;
+  let keyboardOpen=false;
+  let raf=0;
+
+  function applyViewport(){
+    const vv=window.visualViewport;
+    const h=vv ? Math.round(vv.height) : window.innerHeight;
+    const offsetTop=vv ? Math.round(vv.offsetTop) : 0;
+    if(!baseHeight)baseHeight=h;
+    const active=document.activeElement;
+    const input=active===$("chatInput");
+    keyboardOpen=input && baseHeight-h>80;
+    root.style.setProperty("--hangout-vh",h+"px");
+    room.style.height=h+"px";
+    room.style.minHeight=h+"px";
+    if(vv && keyboardOpen){
+      room.style.transform="translateY("+offsetTop+"px)";
+    }else{
+      room.style.transform="translateY(0)";
+    }
+    if(input && keyboardOpen){
+      requestAnimationFrame(()=>active.scrollIntoView({block:"nearest",inline:"nearest"}));
+    }
+  }
+
+  function resetBase(){
+    const vv=window.visualViewport;
+    const h=vv ? Math.round(vv.height) : window.innerHeight;
+    if(!keyboardOpen || h>baseHeight-40)baseHeight=h;
+  }
+
+  const onResize=()=>{
+    cancelAnimationFrame(raf);
+    raf=requestAnimationFrame(applyViewport);
+  };
+  const onFocus=()=>{
+    resetBase();
+    setTimeout(applyViewport,0);
+    setTimeout(applyViewport,120);
+    setTimeout(applyViewport,300);
+  };
+  const onBlur=()=>{
+    keyboardOpen=false;
+    setTimeout(()=>{resetBase();applyViewport()},120);
+  };
+
+  window.visualViewport?.addEventListener("resize",onResize);
+  window.visualViewport?.addEventListener("scroll",onResize);
+  window.addEventListener("resize",onResize);
+  $("chatInput").addEventListener("focus",onFocus);
+  $("chatInput").addEventListener("blur",onBlur);
+  applyViewport();
+})(); 
+
 window.addEventListener("beforeunload",()=>{try{supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}});
 window.addEventListener("error",e=>console.error("[Hangout JS error]",e.error||e.message));
 window.addEventListener("unhandledrejection",e=>console.error("[Hangout promise error]",e.reason));
