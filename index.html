@@ -43,7 +43,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 .media-card.live-on #screenVideo{display:block}
 .media-card.live-on .placeholder{display:none}
 .controls{position:absolute;left:0;right:0;bottom:0;z-index:10;padding:14px;display:flex;align-items:center;gap:7px;background:linear-gradient(transparent,rgba(0,0,0,.86));opacity:0;transform:translateY(7px);pointer-events:none;transition:.18s}
-.media-card.controls .controls,.media-card:hover .controls{opacity:1;transform:none;pointer-events:auto}
+.media-card.show-controls .controls,.media-card:hover .controls{opacity:1;transform:none;pointer-events:auto}
 .ctrl{height:38px;min-width:38px;padding:0 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.5);color:#fff;font-size:11px}
 .ctrl.active{background:rgba(124,92,255,.25);border-color:rgba(124,92,255,.45)}
 .quality{margin-left:auto;height:34px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.5);color:#fff;border-radius:9px;padding:0 8px;font-size:9px}
@@ -702,7 +702,7 @@ $("fitBtn").onclick=()=>{
   $("fitBtn").textContent=fill?"Fill":"Fit";
 };
 $("quality").onchange=()=>requestQuality();
-$("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
+$("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList.add("show-controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("show-controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
 window.addEventListener("beforeunload",()=>{try{supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}});
 window.addEventListener("error",e=>console.error("[Hangout JS error]",e.error||e.message));
