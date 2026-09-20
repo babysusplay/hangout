@@ -344,7 +344,15 @@ async function handleSignal(d){
     if(!isHost&&d.session===remoteSession){closePeer();clearRemote()}return;
   }
   if(d.type==="offer"&&!isHost){
-    if(remoteSession&&d.session!==remoteSession)return;
+    console.log("[WebRTC viewer] offer received",{
+      from:d.from,
+      session:d.session,
+      currentSession:remoteSession,
+      currentPeer:peerId,
+      state:pc?.signalingState||null
+    });
+    // A fresh screen-share creates a new session. Never discard that offer
+    // just because the previous session's stop signal was missed.
     if(pc&&peerId===d.from&&remoteSession===d.session&&pc.signalingState==="stable"){
       try{
         await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
@@ -354,6 +362,8 @@ async function handleSignal(d){
       }catch(e){console.error("[WebRTC viewer renegotiation]",e)}
       return;
     }
+    // Different session = a new share attempt. Replace the old peer and
+    // accept the new offer even if the old stop signal was lost.
     return createViewerPeer(d.from,d.session,d.sdp);
   }
   if(d.type==="answer"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
