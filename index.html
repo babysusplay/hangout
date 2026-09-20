@@ -158,7 +158,7 @@ const $=id=>document.getElementById(id);
 const sessionUserId=(()=>{let x=localStorage.getItem("hangout_duo_user");if(!x){x=crypto.randomUUID();localStorage.setItem("hangout_duo_user",x)}return x})();
 let userName=localStorage.getItem("hangout_duo_name")||"";
 let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
-let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
+let hostId=null, peerId=null, knownGuestId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
 let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set(), seenSignalSids=new Set(), signalSince=0;
 
 
@@ -584,15 +584,17 @@ async function startShare(){
     $("screenVideo").srcObject=shareStream;$("screenVideo").muted=true;$("screenVideo").play().catch(()=>{});
     $("placeholderText").textContent="You are sharing your screen.";
     $("shareBtn").textContent="Stop Share";$("controlShare").textContent="■ Stop";
-    const list=await members();const guest=list.find(m=>m.user_id!==sessionUserId);
-    if(guest){
+    // The room membership is already known from join/member-watcher state.
+    // Do not perform a fresh Supabase members() request here: after a Stop
+    // the Supabase connection can take ~30 seconds to resolve, which used to
+    // make every second Share appear to hang.
+    const guestId=knownGuestId||peerId;
+    if(guestId){
       // Each screen-share is its own WebRTC media session. The previous
       // session is fully closed on Stop, so start a clean offer/answer pair.
-      // This avoids relying on browser-specific receiver behavior after a
-      // screen track has ended.
       if(pc)closePeer();
       remoteSession=null;
-      await createHostPeer(guest.user_id,crypto.randomUUID());
+      await createHostPeer(guestId,crypto.randomUUID());
     }
     toast("Screen sharing started");
   }catch(e){
@@ -650,6 +652,12 @@ async function joinRoom(asHost){
     const list=await joinMember();
     if(list.length>2)throw new Error("This room is full.");
     hostId=list[0]?.user_id||sessionUserId;isHost=hostId===sessionUserId;
+    if(isHost){
+      const initialGuest=list.find(m=>m.user_id!==sessionUserId);
+      knownGuestId=initialGuest?.user_id||null;
+    }else{
+      knownGuestId=null;
+    }
     setStatus(isHost?"Host":"Friend",true);setMemberCount(list.length);joined=true;
     $("shareBtn").style.display=isHost?"block":"none";$("controlShare").style.display=isHost?"block":"none";
     await loadChat();await openChannels();signalSince=Date.now()-1500;startSignalPolling();
@@ -667,6 +675,7 @@ function startMemberWatcher(){
     try{
       const list=await members();setMemberCount(list.length);
       const other=list.find(m=>m.user_id!==sessionUserId);
+      if(isHost)knownGuestId=other?.user_id||null;
       if(other){if(!peerId)peerId=other.user_id}
       else{peerId=null;if(!isHost){closePeer();clearRemote()}}
       if(isHost&&(shareStream||micOn)&&other&&!pc)await createHostPeer(other.user_id,crypto.randomUUID());
@@ -679,7 +688,7 @@ async function leaveRoom(returnLanding=true){
   if(roomChannel){try{await roomChannel.unsubscribe()}catch{}roomChannel=null}
   if(chatChannel){try{await chatChannel.unsubscribe()}catch{}chatChannel=null}
   try{await supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}
-  isHost=false;hostId=null;peerId=null;remoteSession=null;clearRemote();
+  isHost=false;hostId=null;peerId=null;knownGuestId=null;remoteSession=null;clearRemote();
   if(micStream){micStream.getTracks().forEach(t=>{try{t.stop()}catch{}});micStream=null}micOn=false;
   if(returnLanding){showLanding();setStatus("Connecting…")}
 }
