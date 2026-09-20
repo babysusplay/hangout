@@ -263,10 +263,13 @@ function setRemote(stream){
   $("mediaCard").classList.add("live-on");
   $("placeholderText").textContent="Your friend is sharing a screen.";
 }
-function clearRemote(){
-  const v=$("screenVideo"),a=$("screenAudio");v.srcObject=null;a.srcObject=null;
+function hideRemote(){
   $("mediaCard").classList.remove("live-on");
   $("placeholderText").innerHTML="Create the room and share your screen.<br>Your friend will see it here.";
+}
+function clearRemote(){
+  const v=$("screenVideo"),a=$("screenAudio");v.srcObject=null;a.srcObject=null;
+  hideRemote();
 }
 async function addQueuedIce(){
   if(!pc?.remoteDescription)return;
@@ -320,7 +323,15 @@ async function createViewerPeer(from,session,sdp){
   closePeer();peerId=from;remoteSession=session;pc=new RTCPeerConnection(ICE_CONFIG);
   const remote=new MediaStream();
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
-  pc.ontrack=e=>{console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);const incoming=e.streams?.[0];if(incoming)setRemote(incoming);else if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id)){remote.addTrack(e.track);setRemote(remote)}};
+  pc.ontrack=e=>{
+    console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);
+    const incoming=e.streams?.[0];
+    const stream=incoming||remote;
+    if(!incoming&&e.track&&!remote.getTracks().some(t=>t.id===e.track.id))remote.addTrack(e.track);
+    e.track.onunmute=()=>{console.log("[WebRTC track] resumed",e.track.kind);setRemote(stream)};
+    e.track.onmute=()=>{console.log("[WebRTC track] muted",e.track.kind);hideRemote()};
+    setRemote(stream);
+  };
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.oniceconnectionstatechange=()=>console.log("[WebRTC viewer ICE]",pc?.iceConnectionState);
   pc.onsignalingstatechange=()=>console.log("[WebRTC viewer signaling]",pc?.signalingState);
@@ -356,8 +367,9 @@ async function handleSignal(d){
   }
   if(d.type==="stop"){
     if(!isHost&&d.session===remoteSession){
-      // Keep the viewer's PeerConnection alive for the next share.
-      clearRemote();
+      // Keep the receiver/PeerConnection alive. The receiver track will fire
+      // "unmute" when the host replaces the stopped track on the next share.
+      hideRemote();
     }
     return;
   }
