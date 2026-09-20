@@ -155,7 +155,7 @@ const sessionUserId=(()=>{let x=localStorage.getItem("hangout_duo_user");if(!x){
 let userName=localStorage.getItem("hangout_duo_name")||"";
 let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
 let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
-let pendingIce=[], makingOffer=false, joined=false, toastTimer=null;
+let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set();
 
 function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400)}
 function initials(n){return (n||"U").trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"U"}
@@ -226,7 +226,27 @@ async function openChannels(){
     chatChannel.subscribe(s=>{if(s==="SUBSCRIBED")resolve();if(s==="CHANNEL_ERROR"||s==="TIMED_OUT")reject(new Error("Chat channel unavailable"))});
   });
 }
-async function signal(payload){if(!roomChannel)return;try{await roomChannel.send({type:"broadcast",event:"signal",payload})}catch(e){}}
+async function signal(payload){
+  const data={...payload,from:payload.from||sessionUserId};
+  if(roomChannel)try{await roomChannel.send({type:"broadcast",event:"signal",payload:data})}catch(e){}
+  try{await supabaseClient.from("room_messages").insert({room_code:ROOM_CODE,user_id:sessionUserId,user_name:userName||"User",message:JSON.stringify(data),message_type:"signal"})}catch(e){}
+}
+async function pollSignals(){
+  if(!joined)return;
+  try{
+    const {data}=await supabaseClient.from("room_messages").select("id,message,created_at").eq("room_code",ROOM_CODE).eq("message_type","signal").order("id",{ascending:false}).limit(40);
+    for(const row of (data||[]).reverse()){
+      if(seenSignals.has(row.id))continue;
+      seenSignals.add(row.id);
+      let d=null;try{d=JSON.parse(row.message||"")}catch{}
+      if(!d||d.from===sessionUserId)continue;
+      await handleSignal(d);
+    }
+    if(seenSignals.size>200){seenSignals=new Set(Array.from(seenSignals).slice(-100))}
+  }catch(e){}
+}
+function startSignalPolling(){clearInterval(signalPoller);signalPoller=setInterval(pollSignals,700);pollSignals()}
+function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set()}
 async function chatBroadcast(payload){if(chatChannel)try{await chatChannel.send({type:"broadcast",event:"chat",payload})}catch(e){}}
 
 function closePeer(){if(pc){try{pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}catch{}pc=null}peerId=null;pendingIce=[]}
@@ -396,7 +416,7 @@ async function joinRoom(asHost){
     hostId=list[0]?.user_id||sessionUserId;isHost=hostId===sessionUserId;
     setStatus(isHost?"Host":"Friend",true);setMemberCount(list.length);joined=true;
     $("shareBtn").style.display=isHost?"block":"none";$("controlShare").style.display=isHost?"block":"none";
-    await loadChat();await openChannels();
+    await loadChat();await openChannels();startSignalPolling();
     if(!isHost){setTimeout(requestHost,150);setTimeout(requestHost,800);setTimeout(requestHost,1800)}
     startMemberWatcher();
     toast(isHost?"Room created":"Joined Hangout");
@@ -418,7 +438,7 @@ function startMemberWatcher(){
   },2500);
 }
 async function leaveRoom(returnLanding=true){
-  joined=false;clearInterval(memberWatcher);memberWatcher=null;stopShare();
+  joined=false;clearInterval(memberWatcher);memberWatcher=null;stopSignalPolling();stopShare();
   closePeer();
   if(roomChannel){try{await roomChannel.unsubscribe()}catch{}roomChannel=null}
   if(chatChannel){try{await chatChannel.unsubscribe()}catch{}chatChannel=null}
