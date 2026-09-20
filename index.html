@@ -155,7 +155,7 @@ const sessionUserId=(()=>{let x=localStorage.getItem("hangout_duo_user");if(!x){
 let userName=localStorage.getItem("hangout_duo_name")||"";
 let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
 let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
-let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set();
+let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set(), signalSince=0;
 
 function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400)}
 function initials(n){return (n||"U").trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"U"}
@@ -238,6 +238,7 @@ async function pollSignals(){
     for(const row of (data||[]).reverse()){
       if(seenSignals.has(row.id))continue;
       seenSignals.add(row.id);
+      if(signalSince && row.created_at && Date.parse(row.created_at)<signalSince)continue;
       let d=null;try{d=JSON.parse(row.message||"")}catch{}
       if(!d||d.from===sessionUserId)continue;
       await handleSignal(d);
@@ -246,7 +247,7 @@ async function pollSignals(){
   }catch(e){}
 }
 function startSignalPolling(){clearInterval(signalPoller);signalPoller=setInterval(pollSignals,700);pollSignals()}
-function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set()}
+function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set();signalSince=0}
 async function chatBroadcast(payload){if(chatChannel)try{await chatChannel.send({type:"broadcast",event:"chat",payload})}catch(e){}}
 
 function closePeer(){if(pc){try{pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}catch{}pc=null}peerId=null;pendingIce=[]}
@@ -288,7 +289,7 @@ async function createHostPeer(target,session){
 async function createViewerPeer(from,session,sdp){
   if(isHost||!sdp)return;
   closePeer();peerId=from;remoteSession=session;pc=new RTCPeerConnection(ICE_CONFIG);
-  const remote=new MediaStream();setRemote(remote);
+  const remote=new MediaStream();
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.ontrack=e=>{console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);const incoming=e.streams?.[0];if(incoming)setRemote(incoming);else if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id)){remote.addTrack(e.track);setRemote(remote)}};
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
@@ -303,9 +304,9 @@ async function handleSignal(d){
   if(!d||d.from===sessionUserId)return;
   if(d.to&&d.to!==sessionUserId)return;
   if(d.type==="hello"){
-    if(isHost&&(shareStream||micOn)&&d.from===peerId)return createHostPeer(d.from,remoteSession);
-    if(isHost&&(shareStream||micOn))return createHostPeer(d.from,crypto.randomUUID());
-    return;
+    if(!isHost||( !shareStream && !micOn ))return;
+    if(d.from===peerId && pc && ["new","connecting","connected"].includes(pc.connectionState))return;
+    return createHostPeer(d.from,crypto.randomUUID());
   }
   if(d.type==="stop"){
     if(!isHost&&d.session===remoteSession){closePeer();clearRemote()}return;
@@ -416,7 +417,7 @@ async function joinRoom(asHost){
     hostId=list[0]?.user_id||sessionUserId;isHost=hostId===sessionUserId;
     setStatus(isHost?"Host":"Friend",true);setMemberCount(list.length);joined=true;
     $("shareBtn").style.display=isHost?"block":"none";$("controlShare").style.display=isHost?"block":"none";
-    await loadChat();await openChannels();startSignalPolling();startSignalPolling();
+    await loadChat();await openChannels();signalSince=Date.now()-1500;startSignalPolling();
     if(!isHost){setTimeout(requestHost,150);setTimeout(requestHost,800);setTimeout(requestHost,1800)}
     startMemberWatcher();
     toast(isHost?"Room created":"Joined Hangout");
