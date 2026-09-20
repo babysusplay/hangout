@@ -33,6 +33,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 .media{width:75%;min-width:0;position:relative;background:#05060a;padding:14px}
 .media-card{width:100%;height:100%;position:relative;overflow:hidden;border:1px solid var(--border);border-radius:16px;background:#020307;display:flex;align-items:center;justify-content:center}
 #screenVideo{width:100%;height:100%;object-fit:contain;background:#020307;display:none}
+.media-card.fill-mode #screenVideo{object-fit:cover}
 .placeholder{text-align:center;color:#666d7e;padding:20px}
 .placeholder .icon{font-size:38px;margin-bottom:12px}
 .placeholder h2{font-size:14px;color:#c6c9d2;margin-bottom:6px}
@@ -114,10 +115,11 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
           </div>
           <div class="controls" id="controls">
             <button class="ctrl" id="controlShare">▣ Share</button>
+            <button class="ctrl" id="fitBtn">Fit</button>
             <select class="quality" id="quality" title="Viewing quality">
               <option value="source">Source</option>
               <option value="480">480p</option>
-              <option value="720" selected>720p</option>
+              <option value="720">720p</option>
               <option value="1080">1080p</option>
             </select>
           </div>
@@ -258,10 +260,27 @@ function setRemote(stream){
   v.srcObject=stream;
   a.srcObject=stream;
   v.muted=true;
-  v.play().catch(()=>{});
-  a.play().catch(()=>{});
   $("mediaCard").classList.add("live-on");
   $("placeholderText").textContent="Your friend is sharing a screen.";
+
+  const playVideo=()=>{
+    v.play().then(()=>{
+      console.log("[WebRTC viewer] video playing",{
+        width:v.videoWidth,height:v.videoHeight,ready:v.readyState
+      });
+    }).catch(e=>console.warn("[WebRTC viewer] video play retry",e));
+  };
+  v.onloadedmetadata=playVideo;
+  v.oncanplay=playVideo;
+  playVideo();
+
+  // A fresh screen-share session can occasionally deliver the receiver track
+  // before the decoder has produced its first frame. Retry playback briefly.
+  [150,500,1000,2000].forEach(ms=>setTimeout(()=>{
+    if(v.srcObject===stream && v.paused)playVideo();
+  },ms));
+
+  a.play().catch(()=>{});
 }
 function hideRemote(){
   $("mediaCard").classList.remove("live-on");
@@ -307,6 +326,7 @@ async function createHostPeer(target,session){
       restartTimer=setTimeout(()=>{if(hostPc?.connectionState==="disconnected")restartIce()},3000);
     }else if(hostPc?.connectionState==="connected"){
       clearTimeout(restartTimer);
+      applyQuality().catch(e=>console.warn("[WebRTC host] quality setup",e));
     }else if(hostPc?.connectionState==="failed"){
       clearTimeout(restartTimer);
       restartTimer=setTimeout(()=>{if(pc===hostPc&&hostPc.connectionState==="failed")restartIce()},500);
@@ -331,6 +351,15 @@ async function createViewerPeer(from,session,sdp){
     e.track.onunmute=()=>{console.log("[WebRTC track] resumed",e.track.kind);setRemote(stream)};
     e.track.onmute=()=>{console.log("[WebRTC track] muted",e.track.kind);hideRemote()};
     setRemote(stream);
+    if(e.track.kind==="video"){
+      setTimeout(()=>{
+        const v=$("screenVideo");
+        if(v.srcObject===stream && (!v.videoWidth || v.readyState<3) && pc?.connectionState==="connected"){
+          console.warn("[WebRTC viewer] no decoded video frame; requesting fresh offer");
+          signal({type:"refresh",from:sessionUserId,to:from,session:session}).catch(()=>{});
+        }
+      },1800);
+    }
   };
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.oniceconnectionstatechange=()=>console.log("[WebRTC viewer ICE]",pc?.iceConnectionState);
@@ -400,6 +429,21 @@ async function handleSignal(d){
     // Different session = a new share attempt. Replace the old peer and
     // accept the new offer even if the old stop signal was lost.
     return createViewerPeer(d.from,d.session,d.sdp);
+  }
+  if(d.type==="refresh"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
+    if(pc.signalingState!=="stable"||makingOffer)return;
+    try{
+      makingOffer=true;
+      const offer=await pc.createOffer({offerToReceiveAudio:true});
+      await pc.setLocalDescription(offer);
+      await signal({
+        type:"offer",from:sessionUserId,to:peerId,session:remoteSession,
+        sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
+      });
+      console.log("[WebRTC host] refresh offer sent");
+    }catch(e){console.error("[WebRTC host refresh]",e)}
+    finally{makingOffer=false}
+    return;
   }
   if(d.type==="answer"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
     try{if(pc.signalingState==="have-local-offer"){await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));await addQueuedIce()}}catch{}
@@ -485,13 +529,14 @@ async function stopShare(){
 async function applyQuality(){
   const value=$("quality").value;
   if(!isHost||!pc)return;
-  const preset={source:{bitrate:12000000,fps:30,scale:1},480:{bitrate:1600000,fps:30,scale:2.25},720:{bitrate:3500000,fps:30,scale:1.5},1080:{bitrate:8000000,fps:30,scale:1}}[value]||null;
+  const preset={source:{bitrate:12000000,fps:60,scale:1},480:{bitrate:1600000,fps:30,scale:2.25},720:{bitrate:3500000,fps:30,scale:1.5},1080:{bitrate:8000000,fps:30,scale:1}}[value]||null;
   if(!preset)return;
   for(const sender of pc.getSenders()){
     if(!sender.track||!sender.setParameters)continue;
     try{const p=sender.getParameters();if(!p.encodings?.length)continue;
       p.encodings.forEach(e=>{
         if(sender.track.kind==="video"){e.maxBitrate=preset.bitrate;e.maxFramerate=preset.fps;e.scaleResolutionDownBy=preset.scale}
+        if(sender.track.kind==="video" && "degradationPreference" in p)p.degradationPreference="maintain-resolution"
         else if(sender.track.kind==="audio"){e.maxBitrate=128000}
       });
       await sender.setParameters(p)
@@ -554,6 +599,11 @@ $("createBtn").onclick=()=>{userName="Host";joinRoom(true)};
 $("joinBtn").onclick=()=>{userName="Friend";joinRoom(false)};
 $("leaveBtn").onclick=()=>leaveRoom(true);
 $("shareBtn").onclick=startShare;$("controlShare").onclick=startShare;$("micBtn").onclick=toggleMic;
+$("fitBtn").onclick=()=>{
+  const card=$("mediaCard");
+  const fill=card.classList.toggle("fill-mode");
+  $("fitBtn").textContent=fill?"Fill":"Fit";
+};
 $("quality").onchange=()=>requestQuality();
 $("mediaCard").onclick=()=>{$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
