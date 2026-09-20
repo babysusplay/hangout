@@ -355,7 +355,11 @@ async function handleSignal(d){
     return createHostPeer(d.from,crypto.randomUUID());
   }
   if(d.type==="stop"){
-    if(!isHost&&d.session===remoteSession){closePeer();clearRemote()}return;
+    if(!isHost&&d.session===remoteSession){
+      // Keep the viewer's PeerConnection alive for the next share.
+      clearRemote();
+    }
+    return;
   }
   if(d.type==="offer"&&!isHost){
     console.log("[WebRTC viewer] offer received",{
@@ -435,17 +439,40 @@ async function startShare(){
     $("placeholderText").textContent="You are sharing your screen.";
     $("shareBtn").textContent="Stop Share";$("controlShare").textContent="■ Stop";
     const list=await members();const guest=list.find(m=>m.user_id!==sessionUserId);
-    if(guest)await createHostPeer(guest.user_id,crypto.randomUUID());
+    if(guest){
+      // On re-share, reuse the already-connected PeerConnection and replace
+      // its media tracks. This avoids a second SDP/ICE negotiation entirely.
+      if(pc&&peerId===guest.user_id&&!["failed","closed"].includes(pc.connectionState)){
+        for(const sender of pc.getSenders()){
+          if(sender.track?.kind==="video")try{await sender.replaceTrack(track)}catch{}
+          if(sender.track?.kind==="audio"){
+            const audioTrack=shareStream.getAudioTracks()[0]||null;
+            if(audioTrack)try{await sender.replaceTrack(audioTrack)}catch{}
+          }
+        }
+        console.log("[WebRTC host] reusing existing peer for screen-share restart");
+      }else{
+        await createHostPeer(guest.user_id,crypto.randomUUID());
+      }
+    }
     toast("Screen sharing started");
   }catch(e){shareStream=null;toast(e?.name==="NotAllowedError"?"Screen share cancelled":"Could not start screen share")}
 }
-function stopShare(){
-  const target=peerId,old=remoteSession;remoteSession=null;
+async function stopShare(){
+  const target=peerId,old=remoteSession;
   if(target&&old)signal({type:"stop",from:sessionUserId,to:target,session:old}).catch(()=>{});
-  closePeer();
+
+  // Keep the WebRTC connection alive. Stopping a screen track does not require
+  // rebuilding the peer; the next share can replace the existing sender track.
+  if(pc&&isHost){
+    for(const sender of pc.getSenders()){
+      if(sender.track?.kind==="video")try{await sender.replaceTrack(null)}catch{}
+      if(sender.track?.kind==="audio" && !micOn)try{await sender.replaceTrack(null)}catch{}
+    }
+  }
   if(shareStream){shareStream.getTracks().forEach(t=>{try{t.stop()}catch{}});shareStream=null}
-  $("screenVideo").srcObject=null;clearRemote();$("shareBtn").textContent="Share Screen";$("controlShare").textContent="▣ Share";
-  if(isHost&&micOn&&peerId)rebuildHostPeer().catch(()=>{});
+  $("screenVideo").srcObject=null;clearRemote();
+  $("shareBtn").textContent="Share Screen";$("controlShare").textContent="▣ Share";
   $("placeholderText").textContent="Create the room and share your screen.";
 }
 async function applyQuality(){
