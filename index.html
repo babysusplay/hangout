@@ -76,6 +76,8 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
   .landing-card{padding:30px 20px}.actions{grid-template-columns:1fr}
   .room .top{display:none}.media{height:45%;flex-basis:45%}.chat{height:55%;flex-basis:55%}
 }
+
+.debug-panel{position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;display:none;max-height:34vh;overflow:auto;padding:8px 10px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(0,0,0,.9);color:#7CFFB2;font:10px/1.45 monospace;white-space:pre-wrap;pointer-events:none}
 </style>
 </head>
 <body>
@@ -136,7 +138,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
   </div>
 </section>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast"></div><div class="debug-panel" id="debugPanel"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -159,6 +161,15 @@ let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
 let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
 let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set(), seenSignalSids=new Set(), signalSince=0;
 
+
+function debugLog(...args){
+  const msg=args.map(x=>typeof x==="string"?x:JSON.stringify(x)).join(" ");
+  console.log("[Hangout DEBUG]",...args);
+  const p=$("debugPanel");if(!p)return;
+  const line=document.createElement("div");line.textContent=msg;p.appendChild(line);
+  while(p.children.length>18)p.removeChild(p.firstChild);
+  p.scrollTop=p.scrollHeight;
+}
 function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400)}
 function initials(n){return (n||"U").trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"U"}
 function timeNow(){return new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
@@ -260,18 +271,21 @@ function setRemote(stream){
   v.srcObject=stream;
   a.srcObject=stream;
   v.muted=true;
+  debugLog("REMOTE: setRemote tracks="+stream.getTracks().map(t=>t.kind+":"+t.readyState).join(","));
   $("mediaCard").classList.add("live-on");
   $("placeholderText").textContent="Your friend is sharing a screen.";
 
   const playVideo=()=>{
+    debugLog("VIDEO: play() attempt w="+v.videoWidth+" h="+v.videoHeight+" ready="+v.readyState+" paused="+v.paused);
     v.play().then(()=>{
+      debugLog("VIDEO: PLAYING w="+v.videoWidth+" h="+v.videoHeight+" ready="+v.readyState);
       console.log("[WebRTC viewer] video playing",{
         width:v.videoWidth,height:v.videoHeight,ready:v.readyState
       });
-    }).catch(e=>console.warn("[WebRTC viewer] video play retry",e));
+    }).catch(e=>{debugLog("VIDEO: play FAILED "+(e?.name||"")+" "+(e?.message||e));console.warn("[WebRTC viewer] video play retry",e)});
   };
-  v.onloadedmetadata=playVideo;
-  v.oncanplay=playVideo;
+  v.onloadedmetadata=()=>{debugLog("VIDEO: loadedmetadata w="+v.videoWidth+" h="+v.videoHeight);playVideo()};
+  v.oncanplay=()=>{debugLog("VIDEO: canplay");playVideo()};
   playVideo();
 
   // A fresh screen-share session can occasionally deliver the receiver track
@@ -339,22 +353,25 @@ async function createHostPeer(target,session){
   }catch(e){closePeer()}finally{makingOffer=false}
 }
 async function createViewerPeer(from,session,sdp){
-  if(isHost||!sdp)return;
+  debugLog("VIEWER: create peer", {from, session});
+  if(isHost||!sdp){debugLog("VIEWER: create peer skipped");return;}
   closePeer();peerId=from;remoteSession=session;pc=new RTCPeerConnection(ICE_CONFIG);
   const remote=new MediaStream();
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.ontrack=e=>{
+    debugLog("TRACK: "+(e.track?.kind||"?")+" state="+(e.track?.readyState||"?")+" streams="+(e.streams?.length||0));
     console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);
     const incoming=e.streams?.[0];
     const stream=incoming||remote;
     if(!incoming&&e.track&&!remote.getTracks().some(t=>t.id===e.track.id))remote.addTrack(e.track);
-    e.track.onunmute=()=>{console.log("[WebRTC track] resumed",e.track.kind);setRemote(stream)};
-    e.track.onmute=()=>{console.log("[WebRTC track] muted",e.track.kind);hideRemote()};
+    e.track.onunmute=()=>{debugLog("TRACK: unmute "+e.track.kind);console.log("[WebRTC track] resumed",e.track.kind);setRemote(stream)};
+    e.track.onmute=()=>{debugLog("TRACK: mute "+e.track.kind);console.log("[WebRTC track] muted",e.track.kind);hideRemote()};
     setRemote(stream);
     if(e.track.kind==="video"){
       setTimeout(()=>{
         const v=$("screenVideo");
         if(v.srcObject===stream && (!v.videoWidth || v.readyState<3) && pc?.connectionState==="connected"){
+          debugLog("VIDEO: no frame after 1.8s", {w:v.videoWidth,h:v.videoHeight,ready:v.readyState,state:pc?.connectionState});
           console.warn("[WebRTC viewer] no decoded video frame; requesting fresh offer");
           signal({type:"refresh",from:sessionUserId,to:from,session:session}).catch(()=>{});
         }
@@ -364,12 +381,14 @@ async function createViewerPeer(from,session,sdp){
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.oniceconnectionstatechange=()=>console.log("[WebRTC viewer ICE]",pc?.iceConnectionState);
   pc.onsignalingstatechange=()=>console.log("[WebRTC viewer signaling]",pc?.signalingState);
-  pc.onconnectionstatechange=()=>{console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},1200)}};
+  pc.onconnectionstatechange=()=>{debugLog("CONNECTION: "+(pc?.connectionState||"?"));console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},1200)}};
   try{
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));await addQueuedIce();
-    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
+    debugLog("SDP: setting remote offer");
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));debugLog("SDP: remote offer set");
+    await addQueuedIce();
+    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);debugLog("SDP: answer sent");
     await signal({type:"answer",from:sessionUserId,to:from,session:session,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}});
-  }catch(e){closePeer();clearRemote()}
+  }catch(e){debugLog("VIEWER ERROR: "+(e?.name||"")+" "+(e?.message||e));closePeer();clearRemote()}
 }
 async function handleSignal(d){
   if(!d||d.from===sessionUserId)return;
@@ -405,6 +424,7 @@ async function handleSignal(d){
     return;
   }
   if(d.type==="offer"&&!isHost){
+    debugLog("OFFER: received session="+d.session);
     console.log("[WebRTC viewer] offer received",{
       from:d.from,
       session:d.session,
@@ -605,7 +625,7 @@ $("fitBtn").onclick=()=>{
   $("fitBtn").textContent=fill?"Fill":"Fit";
 };
 $("quality").onchange=()=>requestQuality();
-$("mediaCard").onclick=()=>{$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
+$("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
 window.addEventListener("beforeunload",()=>{try{supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}});
 window.addEventListener("error",e=>console.error("[Hangout JS error]",e.error||e.message));
