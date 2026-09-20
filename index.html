@@ -181,7 +181,9 @@ async function ensureRoom(){
   }
 }
 async function clearCurrentRoom(){
+  // Create starts a genuinely fresh 2-person test room.
   await supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE);
+  await supabaseClient.from("room_messages").delete().eq("room_code",ROOM_CODE);
 }
 async function joinMember(){
   const list=await members();
