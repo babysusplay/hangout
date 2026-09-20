@@ -281,11 +281,34 @@ async function createHostPeer(target,session){
   const localSession=remoteSession;
   if(shareStream)shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
-  pc.onicecandidate=e=>{if(e.candidate&&pc===hostPc)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
-  pc.oniceconnectionstatechange=()=>console.log("[WebRTC host ICE]",pc?.iceConnectionState);
-  pc.onsignalingstatechange=()=>console.log("[WebRTC host signaling]",pc?.signalingState);
   const hostPc=pc;
-  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",hostPc?.connectionState);if(hostPc?.connectionState==="failed")setTimeout(()=>{if(shareStream&&pc===hostPc&&hostPc.connectionState==="failed")createHostPeer(target,crypto.randomUUID()).catch(()=>{})},1200)};
+  let restartTimer=null;
+  const restartIce=async()=>{
+    if(pc!==hostPc||!shareStream||hostPc.signalingState!=="stable"||makingOffer)return;
+    try{
+      console.log("[WebRTC host] restarting ICE");
+      makingOffer=true;hostPc.restartIce();
+      const offer=await hostPc.createOffer({iceRestart:true});
+      await hostPc.setLocalDescription(offer);
+      await signal({type:"offer",from:sessionUserId,to:target,session:localSession,sdp:{type:hostPc.localDescription.type,sdp:hostPc.localDescription.sdp}});
+    }catch(e){console.error("[WebRTC host ICE restart]",e)}
+    finally{makingOffer=false}
+  };
+  pc.onicecandidate=e=>{if(e.candidate&&pc===hostPc)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
+  pc.oniceconnectionstatechange=()=>console.log("[WebRTC host ICE]",hostPc?.iceConnectionState);
+  pc.onsignalingstatechange=()=>console.log("[WebRTC host signaling]",hostPc?.signalingState);
+  pc.onconnectionstatechange=()=>{
+    console.log("[WebRTC host]",hostPc?.connectionState);
+    if(hostPc?.connectionState==="disconnected"){
+      clearTimeout(restartTimer);
+      restartTimer=setTimeout(()=>{if(hostPc?.connectionState==="disconnected")restartIce()},3000);
+    }else if(hostPc?.connectionState==="connected"){
+      clearTimeout(restartTimer);
+    }else if(hostPc?.connectionState==="failed"){
+      clearTimeout(restartTimer);
+      restartTimer=setTimeout(()=>{if(pc===hostPc&&hostPc.connectionState==="failed")restartIce()},500);
+    }
+  };
   try{
     const offer=await pc.createOffer({offerToReceiveAudio:true});
     await pc.setLocalDescription(offer);
@@ -322,6 +345,15 @@ async function handleSignal(d){
   }
   if(d.type==="offer"&&!isHost){
     if(remoteSession&&d.session!==remoteSession)return;
+    if(pc&&peerId===d.from&&remoteSession===d.session&&pc.signalingState==="stable"){
+      try{
+        await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
+        const answer=await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await signal({type:"answer",from:sessionUserId,to:d.from,session:d.session,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}});
+      }catch(e){console.error("[WebRTC viewer renegotiation]",e)}
+      return;
+    }
     return createViewerPeer(d.from,d.session,d.sdp);
   }
   if(d.type==="answer"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
