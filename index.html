@@ -2109,7 +2109,7 @@ async function startScreenShare(){
         const track = screenShareStream.getVideoTracks()[0];
         if(track){
             try{ track.contentHint="detail"; }catch{}
-            track.addEventListener("ended",stopScreenShare,{once:true});
+            track.addEventListener("ended",()=>window.stopScreenShare?.(),{once:true});
         }
         if(!screenShareStream.getAudioTracks().length){
             showToast("System audio was not included by your browser/share picker");
@@ -3168,7 +3168,7 @@ async function broadcastSystemJoin(){
 }
 
 async function leaveRoom(){
-    if(screenShareStream) await stopScreenShare();
+    if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
     if(currentRoomCode){
         await supabaseClient.from("room_members").delete().eq("room_code",currentRoomCode).eq("user_id",sessionUserId);
@@ -3950,7 +3950,7 @@ async function enterRoom(roomName,code){
 
 async function leaveRoom(){
     stopPresenceHeartbeat();
-    if(screenShareStream)await stopScreenShare();
+    if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
     if(currentRoomCode){
         try{
@@ -4381,7 +4381,7 @@ async function enterRoom(roomName,code){
 async function leaveRoom(){
     const leavingCode=currentRoomCode;
     stopPresenceHeartbeat();
-    if(screenShareStream)await stopScreenShare();
+    if(screenShareStream)await window.stopScreenShare?.();
     clearTimeout(controlsTimer);
     if(leavingCode){await supabaseClient.from("room_members").delete().eq("room_code",leavingCode).eq("user_id",sessionUserId);}
     Object.values(peerConnections).forEach(pc=>pc.close());peerConnections={};closeRoomChannel();currentRoomCode="";roomProfiles={};roomMembers=[];
