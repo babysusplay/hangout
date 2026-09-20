@@ -337,7 +337,21 @@ async function handleSignal(d){
   if(d.to&&d.to!==sessionUserId)return;
   if(d.type==="hello"){
     if(!isHost||(!shareStream&&!micOn))return;
-    if(d.from===peerId&&pc&&!["failed","closed"].includes(pc.connectionState))return;
+    console.log("[WebRTC host] hello received",{
+      from:d.from,
+      currentPeer:peerId,
+      state:pc?.connectionState||null,
+      session:remoteSession
+    });
+    // A live host peer is already the connection for this guest. A late
+    // hello from the viewer must NEVER create another RTCPeerConnection,
+    // because that closes the working peer while its ICE is still starting.
+    if(pc && !["failed","closed"].includes(pc.connectionState)){
+      if(peerId===d.from || peerId){
+        console.log("[WebRTC host] ignoring hello; active peer exists");
+        return;
+      }
+    }
     return createHostPeer(d.from,crypto.randomUUID());
   }
   if(d.type==="stop"){
