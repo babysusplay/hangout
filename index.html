@@ -268,15 +268,22 @@ async function chatBroadcast(payload){if(chatChannel)try{await chatChannel.send(
 function closePeer(){if(pc){try{pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}catch{}pc=null}peerId=null;pendingIce=[]}
 function setRemote(stream){
   const v=$("screenVideo"),a=$("screenAudio");
-  v.srcObject=stream;
-  a.srcObject=stream;
+  const sameStream=v.srcObject===stream;
+  if(!sameStream){
+    v.srcObject=stream;
+    a.srcObject=stream;
+  }else if(a.srcObject!==stream){
+    a.srcObject=stream;
+  }
   v.muted=true;
-  debugLog("REMOTE: setRemote tracks="+stream.getTracks().map(t=>t.kind+":"+t.readyState).join(","));
+  debugLog("REMOTE: setRemote tracks="+stream.getTracks().map(t=>t.kind+":"+t.readyState).join(",")+" same="+sameStream);
   $("mediaCard").classList.add("live-on");
   $("placeholderText").textContent="Your friend is sharing a screen.";
 
   const playVideo=()=>{
+    if(v.srcObject!==stream)return;
     debugLog("VIDEO: play() attempt w="+v.videoWidth+" h="+v.videoHeight+" ready="+v.readyState+" paused="+v.paused);
+    if(!v.paused)return;
     v.play().then(()=>{
       debugLog("VIDEO: PLAYING w="+v.videoWidth+" h="+v.videoHeight+" ready="+v.readyState);
       console.log("[WebRTC viewer] video playing",{
@@ -288,13 +295,11 @@ function setRemote(stream){
   v.oncanplay=()=>{debugLog("VIDEO: canplay");playVideo()};
   playVideo();
 
-  // A fresh screen-share session can occasionally deliver the receiver track
-  // before the decoder has produced its first frame. Retry playback briefly.
   [150,500,1000,2000].forEach(ms=>setTimeout(()=>{
     if(v.srcObject===stream && v.paused)playVideo();
   },ms));
 
-  a.play().catch(()=>{});
+  if(a.paused)a.play().catch(()=>{});
 }
 function hideRemote(){
   $("mediaCard").classList.remove("live-on");
@@ -381,7 +386,31 @@ async function createViewerPeer(from,session,sdp){
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.oniceconnectionstatechange=()=>console.log("[WebRTC viewer ICE]",pc?.iceConnectionState);
   pc.onsignalingstatechange=()=>console.log("[WebRTC viewer signaling]",pc?.signalingState);
-  pc.onconnectionstatechange=()=>{debugLog("CONNECTION: "+(pc?.connectionState||"?"));console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},1200)}};
+  let viewerRecoveryTimer=null;
+  pc.onconnectionstatechange=()=>{
+    const state=pc?.connectionState;
+    debugLog("CONNECTION: "+(state||"?"));
+    console.log("[WebRTC viewer]",state);
+    if(state==="disconnected"){
+      clearTimeout(viewerRecoveryTimer);
+      viewerRecoveryTimer=setTimeout(()=>{
+        if(pc?.connectionState==="disconnected"){
+          debugLog("ICE: requesting host ICE restart");
+          signal({type:"ice-restart",from:sessionUserId,to:from,session:session}).catch(()=>{});
+        }
+      },1800);
+    }else if(state==="connected"){
+      clearTimeout(viewerRecoveryTimer);
+    }else if(state==="failed"){
+      clearTimeout(viewerRecoveryTimer);
+      debugLog("ICE: viewer failed; requesting host ICE restart");
+      signal({type:"ice-restart",from:sessionUserId,to:from,session:session}).catch(()=>{});
+      // Keep the existing video visible while the ICE restart is negotiated.
+      // Only a genuinely new share session should replace the peer.
+    }else if(state==="closed"){
+      clearTimeout(viewerRecoveryTimer);
+    }
+  };
   try{
     debugLog("SDP: setting remote offer");
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));debugLog("SDP: remote offer set");
@@ -443,12 +472,36 @@ async function handleSignal(d){
         const answer=await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await signal({type:"answer",from:sessionUserId,to:d.from,session:d.session,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}});
-      }catch(e){console.error("[WebRTC viewer renegotiation]",e)}
+        debugLog("SDP: same-session offer answered");
+      }catch(e){
+        console.error("[WebRTC viewer renegotiation]",e);
+        debugLog("VIEWER renegotiation ERROR: "+(e?.message||e));
+      }
       return;
     }
     // Different session = a new share attempt. Replace the old peer and
     // accept the new offer even if the old stop signal was lost.
     return createViewerPeer(d.from,d.session,d.sdp);
+  }
+  if(d.type==="ice-restart"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
+    if(pc.signalingState!=="stable"||makingOffer)return;
+    try{
+      makingOffer=true;
+      console.log("[WebRTC host] ICE restart requested by viewer");
+      debugLog("HOST: ICE restart requested");
+      pc.restartIce();
+      const offer=await pc.createOffer({iceRestart:true});
+      await pc.setLocalDescription(offer);
+      await signal({
+        type:"offer",from:sessionUserId,to:peerId,session:remoteSession,
+        sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
+      });
+      debugLog("HOST: ICE restart offer sent");
+    }catch(e){
+      console.error("[WebRTC host ICE restart]",e);
+      debugLog("HOST ICE restart ERROR: "+(e?.message||e));
+    }finally{makingOffer=false}
+    return;
   }
   if(d.type==="refresh"&&isHost&&pc&&d.from===peerId&&d.session===remoteSession){
     if(pc.signalingState!=="stable"||makingOffer)return;
