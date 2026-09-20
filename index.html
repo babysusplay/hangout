@@ -4511,7 +4511,7 @@ loadLocalProfile();
       pc.onconnectionstatechange=()=>{
         if(["failed","closed"].includes(pc.connectionState)){
           if(S.peers.get(viewerId)===pc)closePeer(viewerId);
-          if(S.host&&S.stream&&!S.offerLocks.has(viewerId))setTimeout(()=>createOffer(viewerId).catch(()=>{}),1000);
+          if(S.host&&S.stream&&!S.offerLocks.has(viewerId))setTimeout(()=>createOffer(viewerId).catch(()=>{}),700);
         }
       };
       const offer=await pc.createOffer({offerToReceiveAudio:false,offerToReceiveVideo:false});
@@ -4631,7 +4631,8 @@ loadLocalProfile();
   }
 
   async function handleSignal(data){
-    if(!data||data.to&&data.to!==sessionUserId)return;
+    if(!data)return;
+    if(data.type!=="request" && data.to && data.to!==sessionUserId)return;
     if(data.type==="request"){
       if(S.host&&S.stream&&data.from!==sessionUserId)await createOffer(data.from);
       return;
@@ -4685,6 +4686,8 @@ loadLocalProfile();
       if(status==="SUBSCRIBED"){
         S.subscribed=true;
         requestHost();
+        setTimeout(()=>requestHost(),700);
+        setTimeout(()=>requestHost(),1800);
       }
     });
 
@@ -4744,8 +4747,11 @@ loadLocalProfile();
       if(v){
         v.srcObject=stream;v.autoplay=true;v.playsInline=true;v.muted=true;
         v.setAttribute("playsinline","");
+        v.setAttribute("webkit-playsinline","");
         v.style.display="block";
-        v.play().catch(()=>{});
+        const playLocal=()=>{try{const p=v.play();if(p?.catch)p.catch(()=>{});}catch{}};
+        v.onloadedmetadata=playLocal;v.onloadeddata=playLocal;v.oncanplay=playLocal;
+        playLocal();setTimeout(playLocal,100);setTimeout(playLocal,500);setTimeout(playLocal,1200);
       }
       ui(true);
       updateShareButton();
