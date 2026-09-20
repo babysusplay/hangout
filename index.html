@@ -64,7 +64,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 @media(max-width:800px){
   .top{height:45px;flex-basis:45px;padding:0 9px}.brand-mark{width:27px;height:27px;font-size:13px}.brand{font-size:11px}.status{font-size:8px}
   .top-actions{gap:4px}.small-btn{height:29px;padding:0 8px;font-size:8px}
-  .body{flex-direction:column}.media{width:100%;height:75%;padding:7px;flex:0 0 75%}.chat{width:100%;height:25%;min-width:0;flex:0 0 25%;border-left:0;border-top:1px solid var(--border)}
+  .body{flex-direction:column}.media{width:100%;height:45%;padding:7px;flex:0 0 45%}.chat{width:100%;height:55%;min-width:0;flex:0 0 55%;border-left:0;border-top:1px solid var(--border)}
   .chat-head{height:34px;flex-basis:34px;padding:0 10px}.messages{padding:7px 9px}.msg{margin-bottom:8px}.avatar{width:24px;height:24px;flex-basis:24px;border-radius:7px;font-size:8px}.msg-name{font-size:9px}.msg-text{font-size:9px}.chat-form{padding:5px}.chat-box input{font-size:9px;padding:5px}
   .controls{padding:8px}.ctrl{height:34px;min-width:34px;padding:0 8px}.quality{height:31px;font-size:8px}
 }
@@ -73,7 +73,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 }
 @media(max-width:500px) and (orientation:portrait){
   .landing-card{padding:30px 20px}.actions{grid-template-columns:1fr}
-  .room .top{display:none}.media{height:75%;flex-basis:75%}.chat{height:25%;flex-basis:25%}
+  .room .top{display:none}.media{height:45%;flex-basis:45%}.chat{height:55%;flex-basis:55%}
 }
 </style>
 </head>
@@ -367,9 +367,11 @@ async function handleSignal(d){
   }
   if(d.type==="stop"){
     if(!isHost&&d.session===remoteSession){
-      // Keep the receiver/PeerConnection alive. The receiver track will fire
-      // "unmute" when the host replaces the stopped track on the next share.
-      hideRemote();
+      // A screen-share session is disposable. Tear down the viewer peer so
+      // the next Share gets a completely fresh offer/answer/receiver.
+      clearRemote();
+      closePeer();
+      remoteSession=null;
     }
     return;
   }
@@ -452,50 +454,13 @@ async function startShare(){
     $("shareBtn").textContent="Stop Share";$("controlShare").textContent="■ Stop";
     const list=await members();const guest=list.find(m=>m.user_id!==sessionUserId);
     if(guest){
-      // On re-share, reuse the already-connected PeerConnection and replace
-      // its media tracks. This avoids a second SDP/ICE negotiation entirely.
-      if(pc&&peerId===guest.user_id&&!["failed","closed"].includes(pc.connectionState)){
-        const videoSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="video")?.sender;
-        const audioSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="audio")?.sender;
-        if(!videoSender)throw new Error("Existing video sender was not found");
-        console.log("[WebRTC host] replacing existing video sender",{
-          oldTrack:videoSender.track?.readyState||null,
-          connection:pc.connectionState,
-          ice:pc.iceConnectionState
-        });
-        await videoSender.replaceTrack(track);
-        console.log("[WebRTC host] replaceTrack succeeded",{
-          senderTrack:videoSender.track?.readyState||null,
-          trackId:track?.id||null,
-          connection:pc.connectionState,
-          ice:pc.iceConnectionState
-        });
-        // Re-enable the existing RTP encoding. We keep the sender/transceiver
-        // and its negotiated receiver alive across Stop -> Share.
-        const videoParams=videoSender.getParameters();
-        if(videoParams.encodings?.length){
-          videoParams.encodings.forEach(enc=>enc.active=true);
-          await videoSender.setParameters(videoParams);
-        }
-        if(audioSender){
-          const audioTrack=shareStream.getAudioTracks()[0]||null;
-          if(audioTrack){
-            await audioSender.replaceTrack(audioTrack);
-            const audioParams=audioSender.getParameters();
-            if(audioParams.encodings?.length){
-              audioParams.encodings.forEach(enc=>enc.active=true);
-              await audioSender.setParameters(audioParams);
-            }
-          }
-        }
-        console.log("[WebRTC host] existing sender re-enabled",{
-          videoActive:videoSender.getParameters().encodings?.map(e=>e.active),
-          connection:pc.connectionState,
-          ice:pc.iceConnectionState
-        });
-      }else{
-        await createHostPeer(guest.user_id,crypto.randomUUID());
-      }
+      // Each screen-share is its own WebRTC media session. The previous
+      // session is fully closed on Stop, so start a clean offer/answer pair.
+      // This avoids relying on browser-specific receiver behavior after a
+      // screen track has ended.
+      if(pc)closePeer();
+      remoteSession=null;
+      await createHostPeer(guest.user_id,crypto.randomUUID());
     }
     toast("Screen sharing started");
   }catch(e){
@@ -509,31 +474,9 @@ async function stopShare(){
   const target=peerId,old=remoteSession;
   if(target&&old)signal({type:"stop",from:sessionUserId,to:target,session:old}).catch(()=>{});
 
-  // Keep the negotiated sender/transceiver alive. Disable RTP sending
-  // instead of replaceTrack(null); this preserves the remote receiver/stream
-  // so the next Share can reuse the exact same media path.
-  if(pc&&isHost){
-    for(const sender of pc.getSenders()){
-      if(sender.track?.kind==="video"){
-        try{
-          const params=sender.getParameters();
-          if(params.encodings?.length){
-            params.encodings.forEach(enc=>enc.active=false);
-            await sender.setParameters(params);
-          }
-        }catch(e){console.error("[WebRTC host] failed to pause video sender",e)}
-      }
-      if(sender.track?.kind==="audio" && !micOn){
-        try{
-          const params=sender.getParameters();
-          if(params.encodings?.length){
-            params.encodings.forEach(enc=>enc.active=false);
-            await sender.setParameters(params);
-          }
-        }catch(e){console.error("[WebRTC host] failed to pause audio sender",e)}
-      }
-    }
-  }
+  // Screen sharing is a disposable media session. Close the old peer
+  // completely so the next Share starts from a clean SDP/ICE state.
+  if(pc&&isHost)closePeer();
   if(shareStream){shareStream.getTracks().forEach(t=>{try{t.stop()}catch{}});shareStream=null}
   $("screenVideo").srcObject=null;clearRemote();
   $("shareBtn").textContent="Share Screen";$("controlShare").textContent="▣ Share";
