@@ -97,7 +97,7 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
         <div class="brand"><span class="brand-mark">◉</span> Hangout <span id="roleStatus" class="status">Connecting…</span></div>
       </div>
       <div class="top-actions">
-        <button class="small-btn" id="shareBtn">Share Screen</button>
+        <button class="small-btn" id="micBtn">🎤 Mic</button><button class="small-btn" id="shareBtn">Share Screen</button>
         <button class="small-btn leave" id="leaveBtn">Leave</button>
       </div>
     </header>
@@ -154,7 +154,7 @@ const $=id=>document.getElementById(id);
 const sessionUserId=(()=>{let x=localStorage.getItem("hangout_duo_user");if(!x){x=crypto.randomUUID();localStorage.setItem("hangout_duo_user",x)}return x})();
 let userName=localStorage.getItem("hangout_duo_name")||"";
 let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
-let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null;
+let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
 let pendingIce=[], makingOffer=false, joined=false, toastTimer=null;
 
 function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400)}
@@ -252,10 +252,11 @@ async function addQueuedIce(){
   for(const item of q){if(item.session!==session)continue;try{await pc.addIceCandidate(new RTCIceCandidate(item.candidate))}catch{}}
 }
 async function createHostPeer(target,session){
-  if(!isHost||!shareStream||!target||makingOffer)return;
+  if(!isHost||(!shareStream&&!micOn)||!target||makingOffer)return;
   makingOffer=true;closePeer();peerId=target;remoteSession=session||crypto.randomUUID();pc=new RTCPeerConnection(ICE_CONFIG);
   const localSession=remoteSession;
-  shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
+  if(shareStream)shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
+  if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.onconnectionstatechange=()=>{if(pc&&(pc.connectionState==="failed"||pc.connectionState==="disconnected"))setTimeout(()=>{if(shareStream&&peerId===target)createHostPeer(target,localSession).catch(()=>{})},700)};
   try{
@@ -268,6 +269,7 @@ async function createViewerPeer(from,session,sdp){
   if(isHost||!sdp)return;
   closePeer();peerId=from;remoteSession=session;pc=new RTCPeerConnection(ICE_CONFIG);
   const remote=new MediaStream();setRemote(remote);
+  if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.ontrack=e=>{if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id))remote.addTrack(e.track);setRemote(remote)};
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
   pc.onconnectionstatechange=()=>{if(pc?.connectionState==="failed"||pc?.connectionState==="closed")clearRemote()};
@@ -281,8 +283,8 @@ async function handleSignal(d){
   if(!d||d.from===sessionUserId)return;
   if(d.to&&d.to!==sessionUserId)return;
   if(d.type==="hello"){
-    if(isHost&&shareStream&&d.from===peerId)return createHostPeer(d.from,remoteSession);
-    if(isHost&&shareStream)return createHostPeer(d.from,crypto.randomUUID());
+    if(isHost&&(shareStream||micOn)&&d.from===peerId)return createHostPeer(d.from,remoteSession);
+    if(isHost&&(shareStream||micOn))return createHostPeer(d.from,crypto.randomUUID());
     return;
   }
   if(d.type==="stop"){
@@ -305,6 +307,27 @@ async function handleSignal(d){
   }
 }
 async function requestHost(){if(!isHost)await signal({type:"hello",from:sessionUserId,to:hostId||"host"})}
+async function rebuildHostPeer(){
+  if(!isHost||(!shareStream&&!micOn)||!peerId)return;
+  await createHostPeer(peerId,crypto.randomUUID());
+}
+async function toggleMic(){
+  const next=!micOn;
+  if(next){
+    if(!navigator.mediaDevices?.getUserMedia){toast("Microphone is not supported in this browser");return}
+    try{
+      micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      micOn=true;$("micBtn").textContent="🎤 Mic On";$("micBtn").classList.add("active");
+      toast("Microphone on");
+    }catch(e){toast(e?.name==="NotAllowedError"?"Microphone permission was denied":"Could not start microphone");return}
+  }else{
+    micOn=false;
+    if(micStream){micStream.getTracks().forEach(t=>{try{t.stop()}catch{}});micStream=null}
+    $("micBtn").textContent="🎤 Mic";$("micBtn").classList.remove("active");toast("Microphone off");
+  }
+  closePeer();
+  if(isHost)await rebuildHostPeer();else setTimeout(requestHost,100);
+}
 
 async function startShare(){
   if(!isHost){toast("Only the host can share the screen");return}
@@ -389,7 +412,7 @@ function startMemberWatcher(){
       const other=list.find(m=>m.user_id!==sessionUserId);
       if(other){if(!peerId)peerId=other.user_id}
       else{peerId=null;if(!isHost){closePeer();clearRemote()}}
-      if(isHost&&shareStream&&other&&!pc)await createHostPeer(other.user_id,crypto.randomUUID());
+      if(isHost&&(shareStream||micOn)&&other&&!pc)await createHostPeer(other.user_id,crypto.randomUUID());
     }catch{}
   },2500);
 }
@@ -400,12 +423,13 @@ async function leaveRoom(returnLanding=true){
   if(chatChannel){try{await chatChannel.unsubscribe()}catch{}chatChannel=null}
   try{await supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}
   isHost=false;hostId=null;peerId=null;remoteSession=null;clearRemote();
+  if(micStream){micStream.getTracks().forEach(t=>{try{t.stop()}catch{}});micStream=null}micOn=false;
   if(returnLanding){showLanding();setStatus("Connecting…")}
 }
 $("createBtn").onclick=()=>{userName="Host";joinRoom(true)};
 $("joinBtn").onclick=()=>{userName="Friend";joinRoom(false)};
 $("leaveBtn").onclick=()=>leaveRoom(true);
-$("shareBtn").onclick=startShare;$("controlShare").onclick=startShare;
+$("shareBtn").onclick=startShare;$("controlShare").onclick=startShare;$("micBtn").onclick=toggleMic;
 $("quality").onchange=()=>requestQuality();
 $("mediaCard").onclick=()=>{$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
