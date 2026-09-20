@@ -458,21 +458,53 @@ async function startShare(){
         const videoSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="video")?.sender;
         const audioSender=pc.getTransceivers().find(t=>t.receiver?.track?.kind==="audio")?.sender;
         if(!videoSender)throw new Error("Existing video sender was not found");
+        console.log("[WebRTC host] replacing existing video sender",{
+          oldTrack:videoSender.track?.readyState||null,
+          connection:pc.connectionState,
+          ice:pc.iceConnectionState
+        });
         await videoSender.replaceTrack(track);
         const audioTrack=shareStream.getAudioTracks()[0]||null;
         if(audioTrack&&audioSender)await audioSender.replaceTrack(audioTrack);
         if(videoSender.setStreams)videoSender.setStreams(shareStream);
-        console.log("[WebRTC host] replaced existing video sender",{
+        console.log("[WebRTC host] replaceTrack succeeded",{
           senderTrack:videoSender.track?.readyState||null,
+          trackId:track?.id||null,
           connection:pc.connectionState,
           ice:pc.iceConnectionState
         });
+
+        // A stopped sender can leave the remote receiver muted/removed on some
+        // browser combinations. Renegotiate on the SAME PeerConnection so the
+        // viewer gets an explicit media resume without creating a new peer.
+        if(pc.signalingState==="stable" && !makingOffer){
+          makingOffer=true;
+          try{
+            const offer=await pc.createOffer({offerToReceiveAudio:true});
+            await pc.setLocalDescription(offer);
+            await signal({
+              type:"offer",
+              from:sessionUserId,
+              to:guest.user_id,
+              session:remoteSession,
+              sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}
+            });
+            console.log("[WebRTC host] renegotiation offer sent for screen-share resume");
+          }finally{
+            makingOffer=false;
+          }
+        }
       }else{
         await createHostPeer(guest.user_id,crypto.randomUUID());
       }
     }
     toast("Screen sharing started");
-  }catch(e){shareStream=null;toast(e?.name==="NotAllowedError"?"Screen share cancelled":"Could not start screen share")}
+  }catch(e){
+    console.error("[WebRTC host] screen-share start failed",e);
+    if(shareStream){try{shareStream.getTracks().forEach(t=>t.stop())}catch{}}
+    shareStream=null;
+    toast(e?.name==="NotAllowedError"?"Screen share cancelled":"Could not start screen share")
+  }
 }
 async function stopShare(){
   const target=peerId,old=remoteSession;
