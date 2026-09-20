@@ -4507,6 +4507,8 @@ loadLocalProfile();
 
   async function createOffer(viewerId){
     if(!S.host||!S.stream||!viewerId||viewerId===sessionUserId)return;
+    const existing=S.peers.get(viewerId);
+    if(existing && !["failed","closed"].includes(existing.connectionState))return;
     if(S.offerLocks.has(viewerId))return;
     S.offerLocks.set(viewerId,true);
     try{
@@ -4831,8 +4833,19 @@ loadLocalProfile();
 </script>
 <script>
 (function(){
-  let watchPollTimer=null, watchLastId=0, watchApplying=false, watchControllerId=null, watchActive=false;
+  let watchPollTimer=null, watchChannel=null, watchLastId=0, watchApplying=false, watchControllerId=null, watchActive=false;
   function wVideo(){return document.getElementById("watchPartyVideo");}
+  async function ensureWatchChannel(){
+    if(!currentRoomCode||!supabaseClient)return;
+    if(watchChannel?.topic==="realtime:hangout-watch-"+currentRoomCode)return;
+    if(watchChannel){try{await watchChannel.unsubscribe()}catch{}watchChannel=null}
+    watchChannel=supabaseClient.channel("hangout-watch-"+currentRoomCode,{config:{broadcast:{self:false}}});
+    watchChannel.on("broadcast",{event:"watch-state"},({payload})=>{
+      if(payload?.from===sessionUserId)return;
+      applyWatchState(payload).catch(()=>{});
+    });
+    await new Promise(resolve=>watchChannel.subscribe(s=>resolve(s==="SUBSCRIBED")));
+  }
   function ensureWatchUI(){
     const card=document.querySelector(".media-card"); if(!card||document.getElementById("watchPartyVideo"))return;
     const style=document.createElement("style"); style.id="watch-party-style";
@@ -4855,7 +4868,11 @@ loadLocalProfile();
   async function publishWatchState(action){
     if(!currentRoomCode||!watchActive||watchApplying)return; const v=wVideo();if(!v||!v.src)return;
     const payload={action,url:v.currentSrc||v.src,time:Number(v.currentTime||0),playing:!v.paused&&!v.ended,controller:watchControllerId||sessionUserId,ts:Date.now()};
-    try{await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName||"User",message:JSON.stringify(payload),message_type:"watch_state"})}catch(e){console.warn("Watch state send failed",e)}
+    payload.from=sessionUserId;
+    try{await ensureWatchChannel();await watchChannel?.send({type:"broadcast",event:"watch-state",payload})}catch(e){console.warn("Watch broadcast failed",e)}
+    if(action==="start"||action==="stop"){
+      try{await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName||"User",message:JSON.stringify(payload),message_type:"watch_state"})}catch(e){console.warn("Watch snapshot save failed",e)}
+    }
   }
   async function startWatchFromModal(){
     const input=document.getElementById("watchVideoUrl"),url=input?.value.trim();
@@ -4881,14 +4898,14 @@ loadLocalProfile();
   }
   async function syncLatestWatchState(){
     if(!currentRoomCode||!supabaseClient)return;try{const {data,error}=await supabaseClient.from("room_messages").select("id,user_id,message").eq("room_code",currentRoomCode).eq("message_type","watch_state").order("id",{ascending:false}).limit(1);if(error||!data?.[0])return;const row=data[0];if(Number(row.id)<=watchLastId)return;watchLastId=Number(row.id);let state;try{state=JSON.parse(row.message)}catch{return}if(row.user_id===sessionUserId&&state.action!=="start")return;await applyWatchState(state)}catch(e){console.warn("Watch state sync failed",e)}}
-  async function startWatchPolling(){clearInterval(watchPollTimer);watchLastId=0;await syncLatestWatchState();watchPollTimer=setInterval(syncLatestWatchState,1000)}
-  function stopWatchPolling(){clearInterval(watchPollTimer);watchPollTimer=null;watchLastId=0}
+  async function startWatchPolling(){clearInterval(watchPollTimer);watchLastId=0;await ensureWatchChannel();await syncLatestWatchState()}
+  async function stopWatchPolling(){clearInterval(watchPollTimer);watchPollTimer=null;watchLastId=0;if(watchChannel){try{await watchChannel.unsubscribe()}catch{}watchChannel=null}}
   function openWatchPartyModal(){ensureWatchUI();document.getElementById("watchPartyModal")?.classList.add("active");showMediaControls()}
   function clearOldLocalRooms(){try{localStorage.removeItem("hangout_recent_rooms_v1");localStorage.removeItem("hangout_recent_rooms_v0")}catch{}}
   function addClearRoomsButton(){const wrap=document.getElementById("recentRooms");if(!wrap||document.getElementById("clearRecentRoomsBtn"))return;const b=document.createElement("button");b.id="clearRecentRoomsBtn";b.textContent="Clear old rooms";b.style.cssText="margin-top:9px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#ff9b9b;border-radius:9px;padding:8px 10px;font-size:10px;cursor:pointer";b.onclick=()=>{if(!confirm("Remove all old rooms from this browser list?"))return;localStorage.removeItem(RECENT_ROOMS_KEY);clearOldLocalRooms();renderRecentRooms();showToast("Old room list cleared ✓")};wrap.appendChild(b)}
   const originalRender=window.renderRecentRooms;window.renderRecentRooms=function(){try{originalRender?.()}catch{}clearOldLocalRooms();addClearRoomsButton()};
   const originalEnter=window.enterRoom;window.enterRoom=async function(roomName,code){await originalEnter(roomName,code);ensureWatchUI();await startWatchPolling()};
-  const originalLeave=window.leaveRoom;window.leaveRoom=async function(){stopWatchPolling();setWatchUI(false);await originalLeave()};
+  const originalLeave=window.leaveRoom;window.leaveRoom=async function(){await stopWatchPolling();setWatchUI(false);await originalLeave()};
   window.openWatchPartyModal=openWatchPartyModal;window.stopWatchParty=stopWatchParty;
   let watchRoomCode="";
   setInterval(()=>{if(currentRoomCode&&watchRoomCode!==currentRoomCode){watchRoomCode=currentRoomCode;startWatchPolling()}else if(!currentRoomCode&&watchRoomCode){watchRoomCode="";stopWatchPolling()}},800);
@@ -4905,14 +4922,15 @@ function closePeer(id){const pc=M.peers.get(id);if(pc){try{pc.close()}catch{}M.p
 function ui(){const card=document.querySelector(".media-card");if(!card)return;if(!document.getElementById("localCamPreview")){const v=document.createElement("video");v.id="localCamPreview";v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="position:absolute;right:10px;top:10px;width:110px;height:78px;object-fit:cover;border-radius:10px;z-index:8;display:none;background:#05060a";card.appendChild(v)}if(!document.getElementById("remoteMediaGrid")){const g=document.createElement("div");g.id="remoteMediaGrid";g.style.cssText="position:absolute;right:10px;bottom:62px;display:flex;gap:7px;z-index:7;max-width:45%";card.appendChild(g)}}
 function buttons(){ui();const a=document.getElementById("mediaMicBtn"),c=document.getElementById("mediaCamBtn"),v=document.getElementById("localCamPreview");if(a){a.textContent=M.mic?"🎙️":"🎤";a.classList.toggle("active",M.mic)}if(c){c.textContent=M.cam?"📹":"📷";c.classList.toggle("active",M.cam)}if(v)v.style.display=M.cam?"block":"none"}
 function remote(id,s){ui();const g=document.getElementById("remoteMediaGrid"),safe=String(id).replace(/[^a-zA-Z0-9_-]/g,"_");let v=document.getElementById("remoteCam-"+safe);if(!v){v=document.createElement("video");v.id="remoteCam-"+safe;v.autoplay=true;v.playsInline=true;v.muted=true;v.style.cssText="width:110px;height:78px;object-fit:cover;border-radius:10px;background:#05060a";g.appendChild(v)}if(s.getVideoTracks().length){v.srcObject=new MediaStream(s.getVideoTracks());v.play().catch(()=>{})}let a=document.getElementById("remoteAud-"+safe);if(!a){a=document.createElement("audio");a.id="remoteAud-"+safe;a.autoplay=true;a.playsInline=true;a.volume=1;document.body.appendChild(a)}if(s.getAudioTracks().length){a.srcObject=new MediaStream(s.getAudioTracks());a.play().catch(()=>{})}}
-async function local(){if(M.localStream)return M.localStream;M.localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});M.localStream.getAudioTracks().forEach(t=>t.enabled=M.mic);M.localStream.getVideoTracks().forEach(t=>t.enabled=M.cam);const v=document.getElementById("localCamPreview");if(v){v.srcObject=M.localStream;v.play().catch(()=>{})}return M.localStream}
+async function local(){if(M.localStream)return M.localStream;if(!M.mic&&!M.cam)throw new Error("No media selected");
+M.localStream=await navigator.mediaDevices.getUserMedia({audio:M.mic,video:M.cam});M.localStream.getAudioTracks().forEach(t=>t.enabled=M.mic);M.localStream.getVideoTracks().forEach(t=>t.enabled=M.cam);const v=document.getElementById("localCamPreview");if(v){v.srcObject=M.localStream;v.play().catch(()=>{})}return M.localStream}
 async function offer(id){if(!M.ready||!room()||!id||id===sessionUserId||String(sessionUserId)>String(id)||M.creating.has(id))return;M.creating.add(id);try{closePeer(id);const pc=new RTCPeerConnection(ice);M.peers.set(id,pc);const s=M.localStream;if(s)s.getTracks().forEach(t=>pc.addTrack(t,s));pc.onicecandidate=e=>{if(e.candidate)send({type:"ice",from:sessionUserId,to:id,candidate:e.candidate.toJSON?.()||e.candidate})};pc.ontrack=e=>{const rs=e.streams?.[0]||new MediaStream([e.track]);remote(id,rs)};const o=await pc.createOffer();await pc.setLocalDescription(o);await send({type:"offer",from:sessionUserId,to:id,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}})}catch(e){console.warn("Media offer failed",e)}finally{M.creating.delete(id)}}
 async function onOffer(d){if(d.to!==sessionUserId||!d.sdp)return;closePeer(d.from);const pc=new RTCPeerConnection(ice);M.peers.set(d.from,pc);try{const s=await local();s.getTracks().forEach(t=>pc.addTrack(t,s));const rs=new MediaStream();pc.ontrack=e=>{if(e.track&&!rs.getTracks().includes(e.track))rs.addTrack(e.track);remote(d.from,rs)};pc.onicecandidate=e=>{if(e.candidate)send({type:"ice",from:sessionUserId,to:d.from,candidate:e.candidate.toJSON?.()||e.candidate})};await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));const a=await pc.createAnswer();await pc.setLocalDescription(a);await send({type:"answer",from:sessionUserId,to:d.from,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp}})}catch(e){console.warn("Media answer failed",e);closePeer(d.from)}}
 async function onAnswer(d){const pc=M.peers.get(d.from);if(!pc||d.to!==sessionUserId)return;try{if(pc.signalingState==="have-local-offer")await pc.setRemoteDescription(new RTCSessionDescription(d.sdp))}catch(e){}}
 async function onIce(d){const pc=M.peers.get(d.from);if(!pc||d.to!==sessionUserId)return;try{await pc.addIceCandidate(new RTCIceCandidate(d.candidate))}catch(e){}}
 async function peers(){try{await loadMembers();for(const m of roomMembers||[])if(m.user_id!==sessionUserId)await offer(m.user_id)}catch{}}
-async function connect(){if(!room()||!supabaseClient)return;if(M.channel){try{await M.channel.unsubscribe()}catch{}}M.channel=supabaseClient.channel("hangout-media-"+room(),{config:{broadcast:{self:false}}});M.channel.on("broadcast",{event:"media-signal"},({payload:d})=>{if(d?.to&&d.to!==sessionUserId)return;if(d.type==="offer")onOffer(d);else if(d.type==="answer")onAnswer(d);else if(d.type==="ice")onIce(d);else if(d.type==="hello")peers()});M.channel.subscribe(async s=>{if(s==="SUBSCRIBED"){M.ready=true;await send({type:"hello",from:sessionUserId});if(M.mic||M.cam)peers()}})}
-async function toggle(kind,e){e?.stopPropagation();if(!room()){showToast("Join a room first");return}if(!navigator.mediaDevices?.getUserMedia){showToast("Camera/microphone is not supported here");return}try{const want=kind==="mic"?!M.mic:!M.cam;if(want)await local();if(kind==="mic")M.mic=want;else M.cam=want;if(M.localStream){M.localStream.getAudioTracks().forEach(t=>t.enabled=M.mic);M.localStream.getVideoTracks().forEach(t=>t.enabled=M.cam)}buttons();await connect();await peers();showToast(kind==="mic"?(M.mic?"Microphone on":"Microphone off"):(M.cam?"Camera on":"Camera off"))}catch(e){console.error(e);showToast("Could not access "+(kind==="mic"?"microphone":"camera"))}}
+async function connect(){if(!room()||!supabaseClient)return;if(M.channel){try{await M.channel.unsubscribe()}catch{}}M.channel=supabaseClient.channel("hangout-media-"+room(),{config:{broadcast:{self:false}}});M.channel.on("broadcast",{event:"media-signal"},({payload:d})=>{if(d?.to&&d.to!==sessionUserId)return;if(d.type==="offer")onOffer(d);else if(d.type==="answer")onAnswer(d);else if(d.type==="ice")onIce(d);else if(d.type==="hello")peers();else if(d.type==="state"&&d.from!==sessionUserId&&!d.mic&&!d.cam){const safe=String(d.from).replace(/[^a-zA-Z0-9_-]/g,"_");document.getElementById("remoteCam-"+safe)?.remove();document.getElementById("remoteAud-"+safe)?.remove();closePeer(d.from)}});M.channel.subscribe(async s=>{if(s==="SUBSCRIBED"){M.ready=true;await send({type:"hello",from:sessionUserId});if(M.mic||M.cam)peers()}})}
+async function toggle(kind,e){e?.stopPropagation();if(!room()){showToast("Join a room first");return}if(!navigator.mediaDevices?.getUserMedia){showToast("Camera/microphone is not supported here");return}try{const want=kind==="mic"?!M.mic:!M.cam;if(want)await local();if(kind==="mic")M.mic=want;else M.cam=want;if(M.localStream){M.localStream.getAudioTracks().forEach(t=>t.enabled=M.mic);M.localStream.getVideoTracks().forEach(t=>t.enabled=M.cam)}buttons();await connect();for(const id of M.peers.keys())closePeer(id);if(M.mic||M.cam)await peers();else await send({type:"state",from:sessionUserId,mic:false,cam:false});showToast(kind==="mic"?(M.mic?"Microphone on":"Microphone off"):(M.cam?"Camera on":"Camera off"))}catch(e){console.error(e);showToast("Could not access "+(kind==="mic"?"microphone":"camera"))}}
 async function reset(){if(M.localStream)M.localStream.getTracks().forEach(t=>t.stop());M.localStream=null;M.mic=false;M.cam=false;for(const id of M.peers.keys())closePeer(id);buttons();if(M.channel){try{await M.channel.unsubscribe()}catch{}M.channel=null}M.ready=false}
 window.toggleRoomMic=e=>toggle("mic",e);window.toggleRoomCamera=e=>toggle("cam",e);window.addEventListener("pagehide",reset);setInterval(()=>{if(currentRoomCode)connect().catch(()=>{});else if(M.ready)reset().catch(()=>{})},1500);setTimeout(buttons,0);
 })();
