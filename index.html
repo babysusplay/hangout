@@ -8,16 +8,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#07080d;--panel:#0d0f17;--card:#11131d;--border:rgba(255,255,255,.09);--text:#f5f7ff;--muted:#858b9b;--accent:#7c5cff;--danger:#ef4444}
-html,body{width:100%;height:100%;font-family:Inter,Arial,sans-serif;background:var(--bg);overflow:hidden;overscroll-behavior:none}
-html{position:fixed;inset:0}
-body{position:fixed;inset:0}
-#room{height:100dvh;overflow:hidden}
-.room{height:100%;min-height:0}
-.body{min-height:0;overflow:hidden}
-.chat{min-height:0}
-.messages{overscroll-behavior:contain}
-.chat-form{flex:0 0 auto}
-.chat-box input{scroll-margin-bottom:8px}
+html,body{width:100%;height:100%;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 button,input{font:inherit}button{cursor:pointer}
 #landing{height:100%;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(circle at 20% 10%,rgba(124,92,255,.16),transparent 32%),radial-gradient(circle at 90% 90%,rgba(80,65,210,.12),transparent 30%),var(--bg)}
 .landing-card{width:min(440px,100%);text-align:center;padding:38px 28px;border:1px solid var(--border);background:rgba(17,19,29,.78);border-radius:24px;box-shadow:0 30px 90px rgba(0,0,0,.4)}
@@ -735,66 +726,6 @@ $("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList
 $("chatForm").addEventListener("submit",sendChat);
 $("attachBtn").onclick=()=>$("mediaInput").click();
 $("mediaInput").addEventListener("change",async e=>{const file=e.target.files?.[0];e.target.value="";if(file)await sendMedia(file)});
-
-// Keep the Hangout viewport locked while the native mobile keyboard is open.
-// visualViewport shrinks to the area above the keyboard, so only the chat
-// area/input reflows instead of the whole page being panned away.
-(function lockMobileKeyboardViewport(){
-  const root=document.documentElement;
-  const room=$("room");
-  let baseHeight=0;
-  let keyboardOpen=false;
-  let raf=0;
-
-  function applyViewport(){
-    const vv=window.visualViewport;
-    const h=vv ? Math.round(vv.height) : window.innerHeight;
-    const offsetTop=vv ? Math.round(vv.offsetTop) : 0;
-    if(!baseHeight)baseHeight=h;
-    const active=document.activeElement;
-    const input=active===$("chatInput");
-    keyboardOpen=input && baseHeight-h>80;
-    root.style.setProperty("--hangout-vh",h+"px");
-    room.style.height=h+"px";
-    room.style.minHeight=h+"px";
-    if(vv && keyboardOpen){
-      room.style.transform="translateY("+offsetTop+"px)";
-    }else{
-      room.style.transform="translateY(0)";
-    }
-    if(input && keyboardOpen){
-      requestAnimationFrame(()=>active.scrollIntoView({block:"nearest",inline:"nearest"}));
-    }
-  }
-
-  function resetBase(){
-    const vv=window.visualViewport;
-    const h=vv ? Math.round(vv.height) : window.innerHeight;
-    if(!keyboardOpen || h>baseHeight-40)baseHeight=h;
-  }
-
-  const onResize=()=>{
-    cancelAnimationFrame(raf);
-    raf=requestAnimationFrame(applyViewport);
-  };
-  const onFocus=()=>{
-    resetBase();
-    setTimeout(applyViewport,0);
-    setTimeout(applyViewport,120);
-    setTimeout(applyViewport,300);
-  };
-  const onBlur=()=>{
-    keyboardOpen=false;
-    setTimeout(()=>{resetBase();applyViewport()},120);
-  };
-
-  window.visualViewport?.addEventListener("resize",onResize);
-  window.visualViewport?.addEventListener("scroll",onResize);
-  window.addEventListener("resize",onResize);
-  $("chatInput").addEventListener("focus",onFocus);
-  $("chatInput").addEventListener("blur",onBlur);
-  applyViewport();
-})(); 
 
 window.addEventListener("beforeunload",()=>{try{supabaseClient.from("room_members").delete().eq("room_code",ROOM_CODE).eq("user_id",sessionUserId)}catch{}});
 window.addEventListener("error",e=>console.error("[Hangout JS error]",e.error||e.message));
