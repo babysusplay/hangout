@@ -279,7 +279,9 @@ async function createHostPeer(target,session){
   if(shareStream)shareStream.getTracks().forEach(t=>pc.addTrack(t,shareStream));
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:target,session:localSession,candidate:e.candidate.toJSON?.()||e.candidate})};
-  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",pc?.connectionState);if(pc&&(pc.connectionState==="failed"||pc.connectionState==="disconnected"))setTimeout(()=>{if(shareStream&&peerId===target)createHostPeer(target,crypto.randomUUID()).catch(()=>{})},900)};
+  pc.oniceconnectionstatechange=()=>console.log("[WebRTC host ICE]",pc?.iceConnectionState);
+  pc.onsignalingstatechange=()=>console.log("[WebRTC host signaling]",pc?.signalingState);
+  pc.onconnectionstatechange=()=>{console.log("[WebRTC host]",pc?.connectionState);if(pc?.connectionState==="failed")setTimeout(()=>{if(shareStream&&peerId===target&&pc?.connectionState==="failed")createHostPeer(target,crypto.randomUUID()).catch(()=>{})},1200)};
   try{
     const offer=await pc.createOffer({offerToReceiveAudio:true});
     await pc.setLocalDescription(offer);
@@ -293,7 +295,9 @@ async function createViewerPeer(from,session,sdp){
   if(micStream&&micOn)micStream.getTracks().forEach(t=>pc.addTrack(t,micStream));
   pc.ontrack=e=>{console.log("[WebRTC track]",e.track?.kind,e.track?.readyState,e.streams?.length);const incoming=e.streams?.[0];if(incoming)setRemote(incoming);else if(e.track&&!remote.getTracks().some(t=>t.id===e.track.id)){remote.addTrack(e.track);setRemote(remote)}};
   pc.onicecandidate=e=>{if(e.candidate)signal({type:"ice",from:sessionUserId,to:from,session:session,candidate:e.candidate.toJSON?.()||e.candidate})};
-  pc.onconnectionstatechange=()=>{console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},900)}};
+  pc.oniceconnectionstatechange=()=>console.log("[WebRTC viewer ICE]",pc?.iceConnectionState);
+  pc.onsignalingstatechange=()=>console.log("[WebRTC viewer signaling]",pc?.signalingState);
+  pc.onconnectionstatechange=()=>{console.log("[WebRTC viewer]",pc?.connectionState);if(pc?.connectionState==="failed"||pc?.connectionState==="closed"){clearRemote();setTimeout(()=>{if(joined&&!isHost)requestHost()},1200)}};
   try{
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));await addQueuedIce();
     const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
@@ -304,8 +308,8 @@ async function handleSignal(d){
   if(!d||d.from===sessionUserId)return;
   if(d.to&&d.to!==sessionUserId)return;
   if(d.type==="hello"){
-    if(!isHost||( !shareStream && !micOn ))return;
-    if(d.from===peerId && pc && ["new","connecting","connected"].includes(pc.connectionState))return;
+    if(!isHost||(!shareStream&&!micOn))return;
+    if(d.from===peerId&&pc&&!["failed","closed"].includes(pc.connectionState))return;
     return createHostPeer(d.from,crypto.randomUUID());
   }
   if(d.type==="stop"){
