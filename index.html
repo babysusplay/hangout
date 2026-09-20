@@ -227,7 +227,7 @@ function addMessage(m){
 async function sendChat(e){
   e.preventDefault();const input=$("chatInput"),text=input.value.trim();if(!text||!joined)return;input.value="";
   const {data,error}=await supabaseClient.from("room_messages").insert({room_code:ROOM_CODE,user_id:sessionUserId,user_name:userName||"User",message:text,message_type:"chat"}).select().single();
-  if(!error&&data)addMessage(data);else if(error)toast("Message could not be sent");
+  if(!error&&data){addMessage(data);await chatBroadcast({...data,from:sessionUserId});}else if(error)toast("Message could not be sent");
 }
 function setStatus(text,online=false){$("roleStatus").textContent=text;$("roleStatus").classList.toggle("online",online)}
 function setMemberCount(n){$("memberCount").textContent=n>=2?"2/2 connected":n===1?"Waiting for friend":"No one connected"}
@@ -265,7 +265,9 @@ function clearRemote(){
 }
 async function addQueuedIce(){
   if(!pc?.remoteDescription)return;
-  const q=pendingIce.splice(0);for(const c of q){try{await pc.addIceCandidate(new RTCIceCandidate(c))}catch{}}
+  const session=remoteSession;
+  const q=pendingIce.splice(0);
+  for(const item of q){if(item.session!==session)continue;try{await pc.addIceCandidate(new RTCIceCandidate(item.candidate))}catch{}}
 }
 async function createHostPeer(target,session){
   if(!isHost||!shareStream||!target||makingOffer)return;
@@ -312,10 +314,11 @@ async function handleSignal(d){
     try{if(pc.signalingState==="have-local-offer"){await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));await addQueuedIce()}}catch{}
     return;
   }
+  if(d.type==="quality"&&isHost){return handleQuality(d)}
   if(d.type==="ice"&&d.session){
     if(isHost){if(d.from!==peerId||d.session!==remoteSession)return}
     else if(d.from!==hostId||d.session!==remoteSession)return;
-    if(!pc?.remoteDescription){pendingIce.push(d.candidate);return}
+    if(!pc?.remoteDescription){pendingIce.push({candidate:d.candidate,session:d.session});return}
     try{await pc.addIceCandidate(new RTCIceCandidate(d.candidate))}catch{}
   }
 }
@@ -343,20 +346,27 @@ async function startShare(){
   }catch(e){shareStream=null;toast(e?.name==="NotAllowedError"?"Screen share cancelled":"Could not start screen share")}
 }
 function stopShare(){
-  const old=remoteSession;remoteSession=null;closePeer();
+  const target=peerId,old=remoteSession;remoteSession=null;
+  if(target&&old)signal({type:"stop",from:sessionUserId,to:target,session:old}).catch(()=>{});
+  closePeer();
   if(shareStream){shareStream.getTracks().forEach(t=>{try{t.stop()}catch{}});shareStream=null}
   $("screenVideo").srcObject=null;clearRemote();$("shareBtn").textContent="Share Screen";$("controlShare").textContent="▣ Share";
-  signal({type:"stop",from:sessionUserId,to:peerId,session:old}).catch(()=>{});
   $("placeholderText").textContent="Create the room and share your screen.";
 }
 async function applyQuality(){
   const value=$("quality").value;
   if(!isHost||!pc)return;
-  const preset={source:{bitrate:12000000,fps:30,scale:1},480:{bitrate:1600000,fps:30,scale:3},720:{bitrate:3500000,fps:30,scale:1.5},1080:{bitrate:8000000,fps:30,scale:1}}[value]||null;
+  const preset={source:{bitrate:12000000,fps:30,scale:1},480:{bitrate:1600000,fps:30,scale:2.25},720:{bitrate:3500000,fps:30,scale:1.5},1080:{bitrate:8000000,fps:30,scale:1}}[value]||null;
   if(!preset)return;
   for(const sender of pc.getSenders()){
-    if(sender.track?.kind!=="video"||!sender.setParameters)continue;
-    try{const p=sender.getParameters();if(!p.encodings?.length)continue;p.encodings.forEach(e=>{e.maxBitrate=preset.bitrate;e.maxFramerate=preset.fps;e.scaleResolutionDownBy=preset.scale});await sender.setParameters(p)}catch{}
+    if(!sender.track||!sender.setParameters)continue;
+    try{const p=sender.getParameters();if(!p.encodings?.length)continue;
+      p.encodings.forEach(e=>{
+        if(sender.track.kind==="video"){e.maxBitrate=preset.bitrate;e.maxFramerate=preset.fps;e.scaleResolutionDownBy=preset.scale}
+        else if(sender.track.kind==="audio"){e.maxBitrate=128000}
+      });
+      await sender.setParameters(p)
+    }catch{}
   }
 }
 async function requestQuality(){
