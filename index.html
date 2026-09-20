@@ -2318,18 +2318,6 @@ async function legacySetupRoomRealtime(){
         });
 }
 
-async function legacyBroadcastSignal(signal){
-    if(!currentRoomCode) return;
-    const {error} = await supabaseClient.from("room_messages").insert({
-        room_code:currentRoomCode,
-        user_id:sessionUserId,
-        user_name:currentUserName,
-        message:JSON.stringify(signal),
-        message_type:"signal"
-    });
-    if(error) console.error("Signal error",error);
-}
-
 function legacyRtcConfig(){
     return {iceServers:[
         {urls:"stun:stun.l.google.com:19302"},
