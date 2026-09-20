@@ -247,15 +247,19 @@ async function signal(payload){
   // existing Realtime channel can take a long time to resolve a send.
   // Fire both transports in the background; DB remains the fallback.
   if(roomChannel){
-    roomChannel.send({type:"broadcast",event:"signal",payload:data}).catch(()=>{});
+    Promise.resolve(roomChannel.send({type:"broadcast",event:"signal",payload:data})).catch(()=>{});
   }
-  supabaseClient.from("room_messages").insert({
-    room_code:ROOM_CODE,
-    user_id:sessionUserId,
-    user_name:userName||"User",
-    message:JSON.stringify(data),
-    message_type:"signal"
-  }).catch(()=>{});
+  void (async()=>{
+    try{
+      await supabaseClient.from("room_messages").insert({
+        room_code:ROOM_CODE,
+        user_id:sessionUserId,
+        user_name:userName||"User",
+        message:JSON.stringify(data),
+        message_type:"signal"
+      });
+    }catch(e){}
+  })();
 }
 async function pollSignals(){
   if(!joined)return;
