@@ -2070,7 +2070,7 @@ async function toggleScreenShare(event){
     await startScreenShare();
 }
 
-async function legacyStartScreenShare(){
+async function legacyStartScreenShare_1(){
     if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
         showToast("Screen sharing is not supported here");
         return;
@@ -3098,7 +3098,7 @@ async function joinRoom(){
     }
 }
 
-async function enterRoom(roomName,code){
+async function legacyEnterRoom_1(roomName,code){
     closeModals();
     currentRoomCode=code;
     document.getElementById("landing").style.display="none";
@@ -3905,7 +3905,7 @@ async function legacySetupRoomRealtime(){
       });
 }
 
-async function enterRoom(roomName,code){
+async function legacyEnterRoom_2(roomName,code){
     closeModals();
     currentRoomCode=code;
     document.getElementById("landing").style.display="none";
@@ -3960,7 +3960,7 @@ async function legacyLeaveRoom(){
 
 /* Make the screen-share start/stop path explicitly notify and
    re-negotiate all current members. */
-async function legacyStartScreenShare(){
+async function legacyStartScreenShare_2(){
     if(!navigator.mediaDevices?.getDisplayMedia){
         showToast("Screen sharing is not supported here");
         return;
@@ -4450,8 +4450,11 @@ loadLocalProfile();
     if(!pc?.remoteDescription)return;
     const q=S.pendingIce.get(id)||[];
     S.pendingIce.delete(id);
-    for(const c of q){
-      try{await pc.addIceCandidate(new RTCIceCandidate(c));}catch(e){console.warn("ICE candidate failed",e);}
+    for(const item of q){
+      const candidate=item?.candidate||item;
+      const session=item?.session;
+      if(session && (S.host ? session!==shareSessionId : session!==S.remoteSessionId))continue;
+      try{await pc.addIceCandidate(new RTCIceCandidate(candidate));}catch(e){console.warn("ICE candidate failed",e);}
     }
   }
 
@@ -4571,10 +4574,17 @@ loadLocalProfile();
 
   async function handleIce(data){
     if(data.to!==sessionUserId||!data.candidate)return;
+    if(data.session){
+      if(S.host){
+        if(data.session!==shareSessionId)return;
+      }else if(!S.remoteSessionId||data.session!==S.remoteSessionId){
+        return;
+      }
+    }
     const pc=S.peers.get(data.from);
     if(!pc||!pc.remoteDescription){
       const q=S.pendingIce.get(data.from)||[];
-      q.push(data.candidate);S.pendingIce.set(data.from,q);
+      q.push({candidate:data.candidate,session:data.session||null});S.pendingIce.set(data.from,q);
       return;
     }
     try{await pc.addIceCandidate(new RTCIceCandidate(data.candidate));}
@@ -4804,24 +4814,12 @@ loadLocalProfile();
   document.addEventListener("click",resumeMedia,{passive:true});
   document.addEventListener("touchstart",resumeMedia,{passive:true});
 
-  const watcher=setInterval(()=>{
-    if(!currentRoomCode){
-      if(S.room){
-        if(S.channel){try{S.channel.unsubscribe();}catch{}}
-        S.channel=null;S.room=null;S.subscribed=false;S.remoteSessionId=null;
-        S.invalidSessions.clear();closeAll();
-      }
-      return;
-    }
-    if(S.room!==currentRoomCode||!S.subscribed)connect().catch(()=>{});
-  },800);
-
   if(typeof currentRoomCode!=="undefined"&&currentRoomCode)connect().catch(()=>{});
 })();
 </script>
 <script>
 (function(){
-  let watchPollTimer=null, watchChannel=null, watchLastId=0, watchApplying=false, watchControllerId=null, watchActive=false;
+  let watchPollTimer=null, watchChannel=null, watchLastId=0, watchApplying=false, watchControllerId=null, watchActive=false, watchSyncTimer=null;
   function wVideo(){return document.getElementById("watchPartyVideo");}
   async function ensureWatchChannel(){
     if(!currentRoomCode||!supabaseClient)return;
@@ -4858,7 +4856,7 @@ loadLocalProfile();
     const payload={action,url:v.currentSrc||v.src,time:Number(v.currentTime||0),playing:!v.paused&&!v.ended,controller:watchControllerId||sessionUserId,ts:Date.now()};
     payload.from=sessionUserId;
     try{await ensureWatchChannel();await watchChannel?.send({type:"broadcast",event:"watch-state",payload})}catch(e){console.warn("Watch broadcast failed",e)}
-    if(action==="start"||action==="stop"){
+    if(action==="start"||action==="stop"||action==="sync"){
       try{await supabaseClient.from("room_messages").insert({room_code:currentRoomCode,user_id:sessionUserId,user_name:currentUserName||"User",message:JSON.stringify(payload),message_type:"watch_state"})}catch(e){console.warn("Watch snapshot save failed",e)}
     }
   }
@@ -4886,8 +4884,19 @@ loadLocalProfile();
   }
   async function syncLatestWatchState(){
     if(!currentRoomCode||!supabaseClient)return;try{const {data,error}=await supabaseClient.from("room_messages").select("id,user_id,message").eq("room_code",currentRoomCode).eq("message_type","watch_state").order("id",{ascending:false}).limit(1);if(error||!data?.[0])return;const row=data[0];if(Number(row.id)<=watchLastId)return;watchLastId=Number(row.id);let state;try{state=JSON.parse(row.message)}catch{return}if(row.user_id===sessionUserId&&state.action!=="start")return;await applyWatchState(state)}catch(e){console.warn("Watch state sync failed",e)}}
-  async function startWatchPolling(){clearInterval(watchPollTimer);watchLastId=0;await ensureWatchChannel();await syncLatestWatchState()}
-  async function stopWatchPolling(){clearInterval(watchPollTimer);watchPollTimer=null;watchLastId=0;if(watchChannel){try{await watchChannel.unsubscribe()}catch{}watchChannel=null}}
+  async function startWatchPolling(){
+    clearInterval(watchPollTimer);watchPollTimer=null;clearInterval(watchSyncTimer);watchSyncTimer=null;
+    watchLastId=0;await ensureWatchChannel();await syncLatestWatchState();
+    watchSyncTimer=setInterval(()=>{
+      if(!currentRoomCode||!watchActive||watchControllerId!==sessionUserId)return;
+      const v=wVideo();
+      if(v?.src&&!v.paused&&!v.ended)publishWatchState("sync").catch(()=>{});
+    },5000);
+  }
+  async function stopWatchPolling(){
+    clearInterval(watchPollTimer);watchPollTimer=null;clearInterval(watchSyncTimer);watchSyncTimer=null;
+    watchLastId=0;if(watchChannel){try{await watchChannel.unsubscribe()}catch{}watchChannel=null}
+  }
   function openWatchPartyModal(){ensureWatchUI();document.getElementById("watchPartyModal")?.classList.add("active");showMediaControls()}
   function clearOldLocalRooms(){try{localStorage.removeItem("hangout_recent_rooms_v1");localStorage.removeItem("hangout_recent_rooms_v0")}catch{}}
   function addClearRoomsButton(){const wrap=document.getElementById("recentRooms");if(!wrap||document.getElementById("clearRecentRoomsBtn"))return;const b=document.createElement("button");b.id="clearRecentRoomsBtn";b.textContent="Clear old rooms";b.style.cssText="margin-top:9px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#ff9b9b;border-radius:9px;padding:8px 10px;font-size:10px;cursor:pointer";b.onclick=()=>{if(!confirm("Remove all old rooms from this browser list?"))return;localStorage.removeItem(RECENT_ROOMS_KEY);clearOldLocalRooms();renderRecentRooms();showToast("Old room list cleared ✓")};wrap.appendChild(b)}
@@ -4895,8 +4904,6 @@ loadLocalProfile();
   const originalEnter=window.enterRoom;window.enterRoom=async function(roomName,code){await originalEnter(roomName,code);ensureWatchUI();await startWatchPolling()};
   const originalLeave=window.leaveRoom;window.leaveRoom=async function(){await stopWatchPolling();setWatchUI(false);await originalLeave()};
   window.openWatchPartyModal=openWatchPartyModal;window.stopWatchParty=stopWatchParty;
-  let watchRoomCode="";
-  setInterval(()=>{if(currentRoomCode&&watchRoomCode!==currentRoomCode){watchRoomCode=currentRoomCode;startWatchPolling()}else if(!currentRoomCode&&watchRoomCode){watchRoomCode="";stopWatchPolling()}},800);
   clearOldLocalRooms();setTimeout(()=>{ensureWatchUI();renderRecentRooms();addClearRoomsButton()},0);
 })();
 </script>
@@ -4918,8 +4925,43 @@ async function onAnswer(d){const pc=M.peers.get(d.from);if(!pc||d.to!==sessionUs
 async function onIce(d){const pc=M.peers.get(d.from);if(!pc||d.to!==sessionUserId)return;try{await pc.addIceCandidate(new RTCIceCandidate(d.candidate))}catch(e){}}
 async function peers(){try{await loadMembers();for(const m of roomMembers||[])if(m.user_id!==sessionUserId)await offer(m.user_id)}catch{}}
 async function connect(){if(!room()||!supabaseClient)return;if(M.channel&&M.room===room()&&M.ready)return;if(M.channel){try{await M.channel.unsubscribe()}catch{}M.channel=null}M.room=room();M.channel=supabaseClient.channel("hangout-media-"+room(),{config:{broadcast:{self:false}}});M.channel.on("broadcast",{event:"media-signal"},({payload:d})=>{if(d?.to&&d.to!==sessionUserId)return;if(d.type==="offer")onOffer(d);else if(d.type==="answer")onAnswer(d);else if(d.type==="ice")onIce(d);else if(d.type==="hello")peers();else if(d.type==="state"&&d.from!==sessionUserId&&!d.mic&&!d.cam){const safe=String(d.from).replace(/[^a-zA-Z0-9_-]/g,"_");document.getElementById("remoteCam-"+safe)?.remove();document.getElementById("remoteAud-"+safe)?.remove();closePeer(d.from)}});M.channel.subscribe(async s=>{if(s==="SUBSCRIBED"){M.ready=true;await send({type:"hello",from:sessionUserId});if(M.mic||M.cam)peers()}})}
-async function toggle(kind,e){e?.stopPropagation();if(!room()){showToast("Join a room first");return}if(!navigator.mediaDevices?.getUserMedia){showToast("Camera/microphone is not supported here");return}try{const want=kind==="mic"?!M.mic:!M.cam;if(want)await local();if(kind==="mic")M.mic=want;else M.cam=want;if(M.localStream){M.localStream.getAudioTracks().forEach(t=>t.enabled=M.mic);M.localStream.getVideoTracks().forEach(t=>t.enabled=M.cam)}buttons();await connect();for(const id of M.peers.keys())closePeer(id);if(M.mic||M.cam)await peers();else await send({type:"state",from:sessionUserId,mic:false,cam:false});showToast(kind==="mic"?(M.mic?"Microphone on":"Microphone off"):(M.cam?"Camera on":"Camera off"))}catch(e){console.error(e);showToast("Could not access "+(kind==="mic"?"microphone":"camera"))}}
-async function reset(){if(M.localStream)M.localStream.getTracks().forEach(t=>t.stop());M.localStream=null;M.mic=false;M.cam=false;for(const id of M.peers.keys())closePeer(id);buttons();if(M.channel){try{await M.channel.unsubscribe()}catch{}M.channel=null}M.ready=false;M.room=""}
+async function toggle(kind,e){
+  e?.stopPropagation();
+  if(!room()){showToast("Join a room first");return}
+  if(!navigator.mediaDevices?.getUserMedia){showToast("Camera/microphone is not supported here");return}
+  const nextMic=kind==="mic"?!M.mic:M.mic;
+  const nextCam=kind==="cam"?!M.cam:M.cam;
+  const oldMic=M.mic,oldCam=M.cam;
+  try{
+    if(M.localStream){M.localStream.getTracks().forEach(t=>{try{t.stop()}catch{}});M.localStream=null}
+    M.mic=nextMic;M.cam=nextCam;
+    if(M.mic||M.cam)await local();
+    buttons();
+    await connect();
+    for(const id of M.peers.keys())closePeer(id);
+    if(M.mic||M.cam)await peers();
+    else{
+      await send({type:"state",from:sessionUserId,mic:false,cam:false});
+      document.getElementById("remoteMediaGrid")?.replaceChildren();
+    }
+    showToast(kind==="mic"?(M.mic?"Microphone on":"Microphone off"):(M.cam?"Camera on":"Camera off"));
+  }catch(e){
+    console.error("Media toggle failed",e);
+    if(M.localStream){M.localStream.getTracks().forEach(t=>{try{t.stop()}catch{}});M.localStream=null}
+    M.mic=oldMic;M.cam=oldCam;buttons();
+    showToast("Could not access "+(kind==="mic"?"microphone":"camera"));
+  }
+}
+async function reset(){
+  if(M.localStream)M.localStream.getTracks().forEach(t=>{try{t.stop()}catch{}});
+  M.localStream=null;M.mic=false;M.cam=false;
+  for(const id of M.peers.keys())closePeer(id);
+  document.getElementById("remoteMediaGrid")?.replaceChildren();
+  const lp=document.getElementById("localCamPreview");if(lp)lp.srcObject=null;
+  buttons();
+  if(M.channel){try{await M.channel.unsubscribe()}catch{}M.channel=null}
+  M.ready=false;M.room="";
+}
 window.toggleRoomMic=e=>toggle("mic",e);window.toggleRoomCamera=e=>toggle("cam",e);window.addEventListener("pagehide",reset);setInterval(()=>{if(currentRoomCode)connect().catch(()=>{});else if(M.ready)reset().catch(()=>{})},1500);setTimeout(buttons,0);
 })();
 </script>
