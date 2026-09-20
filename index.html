@@ -356,6 +356,7 @@ function stopShare(){
   closePeer();
   if(shareStream){shareStream.getTracks().forEach(t=>{try{t.stop()}catch{}});shareStream=null}
   $("screenVideo").srcObject=null;clearRemote();$("shareBtn").textContent="Share Screen";$("controlShare").textContent="▣ Share";
+  if(isHost&&micOn&&peerId)rebuildHostPeer().catch(()=>{});
   $("placeholderText").textContent="Create the room and share your screen.";
 }
 async function applyQuality(){
