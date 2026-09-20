@@ -243,8 +243,19 @@ async function openChannels(){
 }
 async function signal(payload){
   const data={...payload,from:payload.from||sessionUserId,sid:payload.sid||crypto.randomUUID()};
-  if(roomChannel)try{await roomChannel.send({type:"broadcast",event:"signal",payload:data})}catch(e){}
-  try{await supabaseClient.from("room_messages").insert({room_code:ROOM_CODE,user_id:sessionUserId,user_name:userName||"User",message:JSON.stringify(data),message_type:"signal"})}catch(e){}
+  // Signaling must never block WebRTC setup. After a Stop/Share cycle the
+  // existing Realtime channel can take a long time to resolve a send.
+  // Fire both transports in the background; DB remains the fallback.
+  if(roomChannel){
+    roomChannel.send({type:"broadcast",event:"signal",payload:data}).catch(()=>{});
+  }
+  supabaseClient.from("room_messages").insert({
+    room_code:ROOM_CODE,
+    user_id:sessionUserId,
+    user_name:userName||"User",
+    message:JSON.stringify(data),
+    message_type:"signal"
+  }).catch(()=>{});
 }
 async function pollSignals(){
   if(!joined)return;
