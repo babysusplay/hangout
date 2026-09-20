@@ -351,8 +351,10 @@ async function handleSignal(d){
       currentPeer:peerId,
       state:pc?.signalingState||null
     });
-    // A fresh screen-share creates a new session. Never discard that offer
-    // just because the previous session's stop signal was missed.
+    // IMPORTANT: do not reject a new share offer just because the viewer
+    // still has the previous session ID. The stop signal can arrive late
+    // (or be missed), while the new offer is the authoritative signal that
+    // the host started sharing again.
     if(pc&&peerId===d.from&&remoteSession===d.session&&pc.signalingState==="stable"){
       try{
         await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
