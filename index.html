@@ -155,7 +155,7 @@ const sessionUserId=(()=>{let x=localStorage.getItem("hangout_duo_user");if(!x){
 let userName=localStorage.getItem("hangout_duo_name")||"";
 let isHost=false, roomChannel=null, chatChannel=null, memberWatcher=null;
 let hostId=null, peerId=null, pc=null, shareStream=null, remoteSession=null, micStream=null, micOn=false;
-let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set(), signalSince=0;
+let pendingIce=[], makingOffer=false, joined=false, toastTimer=null, signalPoller=null, seenSignals=new Set(), seenSignalSids=new Set(), signalSince=0;
 
 function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400)}
 function initials(n){return (n||"U").trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"U"}
@@ -229,7 +229,7 @@ async function openChannels(){
   });
 }
 async function signal(payload){
-  const data={...payload,from:payload.from||sessionUserId};
+  const data={...payload,from:payload.from||sessionUserId,sid:payload.sid||crypto.randomUUID()};
   if(roomChannel)try{await roomChannel.send({type:"broadcast",event:"signal",payload:data})}catch(e){}
   try{await supabaseClient.from("room_messages").insert({room_code:ROOM_CODE,user_id:sessionUserId,user_name:userName||"User",message:JSON.stringify(data),message_type:"signal"})}catch(e){}
 }
@@ -249,7 +249,7 @@ async function pollSignals(){
   }catch(e){}
 }
 function startSignalPolling(){clearInterval(signalPoller);signalPoller=setInterval(pollSignals,700);pollSignals()}
-function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set();signalSince=0}
+function stopSignalPolling(){clearInterval(signalPoller);signalPoller=null;seenSignals=new Set();seenSignalSids=new Set();signalSince=0}
 async function chatBroadcast(payload){if(chatChannel)try{await chatChannel.send({type:"broadcast",event:"chat",payload})}catch(e){}}
 
 function closePeer(){if(pc){try{pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}catch{}pc=null}peerId=null;pendingIce=[]}
@@ -308,6 +308,7 @@ async function createViewerPeer(from,session,sdp){
 }
 async function handleSignal(d){
   if(!d||d.from===sessionUserId)return;
+  if(d.sid){if(seenSignalSids.has(d.sid))return;seenSignalSids.add(d.sid);if(seenSignalSids.size>300)seenSignalSids=new Set(Array.from(seenSignalSids).slice(-150))}
   if(d.to&&d.to!==sessionUserId)return;
   if(d.type==="hello"){
     if(!isHost||(!shareStream&&!micOn))return;
