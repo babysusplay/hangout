@@ -68,6 +68,12 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
 .chat-box{display:flex;gap:5px;padding:5px;background:#080910;border:1px solid var(--border);border-radius:11px}
 .chat-box input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#fff;font-size:10px;padding:7px}
 .send{width:32px;border:0;border-radius:8px;background:rgba(124,92,255,.18);color:#fff}
+.attach{width:32px;border:0;border-radius:8px;background:rgba(255,255,255,.06);color:#ddd;display:grid;place-items:center;font-size:16px}
+.media-msg{margin-top:6px;max-width:min(100%,260px)}
+.media-msg img,.media-msg video{display:block;width:auto;max-width:100%;max-height:260px;border-radius:10px;border:1px solid var(--border);background:#020307}
+.media-msg video{min-width:180px}
+.media-caption{font-size:8px;color:#6f7585;margin-top:4px;word-break:break-all}
+#mediaInput{display:none}
 .toast{position:fixed;left:50%;bottom:20px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:#171924;border:1px solid var(--border);color:#fff;border-radius:10px;padding:10px 14px;font-size:10px;z-index:100;transition:.2s}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
@@ -140,8 +146,13 @@ h1{font-size:30px;letter-spacing:-1px;margin-bottom:8px}
         <div class="chat-head"><span class="chat-title">Chat</span><span class="chat-count" id="memberCount">Waiting for friend</span></div>
         <div class="messages" id="messages"></div>
         <form class="chat-form" id="chatForm">
-          <div class="chat-box"><input id="chatInput" maxlength="500" autocomplete="off" placeholder="Type a message…"><button class="send" type="submit">➤</button></div>
-        </div>
+          <div class="chat-box">
+            <button class="attach" id="attachBtn" type="button" title="Send image or video">＋</button>
+            <input id="chatInput" maxlength="500" autocomplete="off" placeholder="Type a message…">
+            <button class="send" type="submit">➤</button>
+          </div>
+          <input id="mediaInput" type="file" accept="image/*,video/*">
+        </form>
       </aside>
     </main>
   </div>
@@ -227,8 +238,41 @@ function addMessage(m){
   const av=document.createElement("div");av.className="avatar";av.textContent=initials(m.user_name);
   const body=document.createElement("div");
   const top=document.createElement("div");top.innerHTML='<span class="msg-name"></span><span class="msg-time"></span>';top.querySelector(".msg-name").textContent=m.user_name||"User";top.querySelector(".msg-time").textContent=m.created_at?new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):timeNow();
-  const text=document.createElement("div");text.className="msg-text";text.textContent=m.message||"";
-  body.append(top,text);wrap.append(av,body);$("messages").appendChild(wrap);$("messages").scrollTop=$("messages").scrollHeight;
+  let payload=null;try{payload=JSON.parse(m.message||"")}catch{}
+  if(payload?.type==="media"&&payload.url){
+    const box=document.createElement("div");box.className="media-msg";
+    if(payload.mime?.startsWith("video/")){
+      const v=document.createElement("video");v.src=payload.url;v.controls=true;v.playsInline=true;v.preload="metadata";box.appendChild(v);
+    }else{
+      const img=document.createElement("img");img.src=payload.url;img.alt=payload.name||"Shared image";img.loading="lazy";box.appendChild(img);
+    }
+    const cap=document.createElement("div");cap.className="media-caption";cap.textContent=payload.name||"Shared media";box.appendChild(cap);
+    body.append(top,box);
+  }else{
+    const text=document.createElement("div");text.className="msg-text";text.textContent=m.message||"";
+    body.append(top,text);
+  }
+  wrap.append(av,body);$("messages").appendChild(wrap);$("messages").scrollTop=$("messages").scrollHeight;
+}
+const MEDIA_BUCKET="hangout-media";
+async function sendMedia(file){
+  if(!file||!joined)return;
+  const isVideo=file.type.startsWith("video/"),isImage=file.type.startsWith("image/");
+  if(!isVideo&&!isImage){toast("Only images and videos are supported");return}
+  const maxSize=isVideo?100*1024*1024:15*1024*1024;
+  if(file.size>maxSize){toast(isVideo?"Video must be 100 MB or smaller":"Image must be 15 MB or smaller");return}
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+  const path=sessionUserId+"/"+Date.now()+"-"+crypto.randomUUID()+"-"+safeName;
+  toast("Uploading "+(isVideo?"video…":"image…"));
+  try{
+    const {error}=await supabaseClient.storage.from(MEDIA_BUCKET).upload(path,file,{contentType:file.type,upsert:false,cacheControl:"31536000"});
+    if(error)throw error;
+    const {data}=supabaseClient.storage.from(MEDIA_BUCKET).getPublicUrl(path);
+    const payload={type:"media",url:data.publicUrl,name:file.name,mime:file.type,size:file.size};
+    const {data:row,error:rowError}=await supabaseClient.from("room_messages").insert({room_code:ROOM_CODE,user_id:sessionUserId,user_name:userName||"User",message:JSON.stringify(payload),message_type:"chat"}).select().single();
+    if(rowError)throw rowError;
+    addMessage(row);await chatBroadcast({...row,from:sessionUserId});toast(isVideo?"Video sent":"Image sent");
+  }catch(e){console.error("[Hangout media upload]",e);toast("Media upload failed. Storage bucket/policy check needed.")}
 }
 async function sendChat(e){
   e.preventDefault();const input=$("chatInput"),text=input.value.trim();if(!text||!joined)return;input.value="";
@@ -689,6 +733,8 @@ $("fitBtn").onclick=()=>{
 $("quality").onchange=()=>requestQuality();
 $("mediaCard").onclick=()=>{debugLog("TAP: media card");$("mediaCard").classList.add("controls");clearTimeout(window.__hideControls);window.__hideControls=setTimeout(()=>$("mediaCard").classList.remove("controls"),3000)};
 $("chatForm").addEventListener("submit",sendChat);
+$("attachBtn").onclick=()=>$("mediaInput").click();
+$("mediaInput").addEventListener("change",async e=>{const file=e.target.files?.[0];e.target.value="";if(file)await sendMedia(file)});
 
 // Keep the Hangout viewport locked while the native mobile keyboard is open.
 // visualViewport shrinks to the area above the keyboard, so only the chat
